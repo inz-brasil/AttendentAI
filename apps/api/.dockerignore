@@ -8,8 +8,8 @@ node_modules/
 .env.*
 
 # Dados persistentes (montados via volume)
-vault/
-data/
+/vault/
+/data/
 
 # Artefatos de build locais
 dist/
