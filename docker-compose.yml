@@ -1,0 +1,140 @@
+# docker-compose.yml — Orquestração local de desenvolvimento do AttendentAI
+# Uso: docker compose up -d
+# Todos os serviços lêem variáveis do arquivo .env na raiz do projeto
+
+services:
+  # ──────────────────────────────────────────────
+  # Redis — fila de mensagens, cache e locks
+  # ──────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: attendentai-redis
+    restart: unless-stopped
+    # Habilitar persistência AOF para não perder dados na reinicialização
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
+    networks:
+      - attendentai-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ──────────────────────────────────────────────
+  # API — Backend Fastify + Bun
+  # ──────────────────────────────────────────────
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: attendentai-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Garante que o Redis seja acessado pelo hostname do serviço Docker
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: file:/data/db.sqlite
+      SQLITE_JOURNAL_MODE: DELETE
+      VAULT_PATH: /vault
+      PORT: "3001"
+    ports:
+      - "3001:3001"
+    volumes:
+      # Dados persistentes do SQLite
+      - ./data:/data
+      # Vault de arquivos de conhecimento dos agentes
+      - ./vault:/vault
+    networks:
+      - attendentai-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"fetch('http://localhost:3001/health').then(r => r.ok ? process.exit(0) : process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ──────────────────────────────────────────────
+  # Worker — Processamento assíncrono da fila BullMQ
+  # ──────────────────────────────────────────────
+  worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: attendentai-worker
+    restart: unless-stopped
+    command: ["bun", "run", "src/queue/worker.ts"]
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: file:/data/db.sqlite
+      SQLITE_JOURNAL_MODE: DELETE
+      VAULT_PATH: /vault
+      PORT: "3001"
+    volumes:
+      - ./data:/data
+      - ./vault:/vault
+    networks:
+      - attendentai-net
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"import('./src/queue/redis.ts').then(async ({ redisConnection }) => { const r = await redisConnection.ping(); await redisConnection.quit(); process.exit(r === 'PONG' ? 0 : 1) }).catch(() => process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ──────────────────────────────────────────────
+  # Dashboard — Frontend Next.js 14
+  # ──────────────────────────────────────────────
+  dashboard:
+    build:
+      context: ./apps/dashboard
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* precisam ser passados em build-time (são inlined pelo webpack)
+        NEXT_PUBLIC_API_URL: http://api:3001
+    container_name: attendentai-dashboard
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+    networks:
+      - attendentai-net
+    depends_on:
+      api:
+        condition: service_healthy
+
+# ──────────────────────────────────────────────
+# Volumes nomeados
+# ──────────────────────────────────────────────
+volumes:
+  redis_data:
+    name: attendentai-redis-data
+
+# ──────────────────────────────────────────────
+# Rede interna isolada
+# ──────────────────────────────────────────────
+networks:
+  attendentai-net:
+    name: attendentai-network
+    driver: bridge

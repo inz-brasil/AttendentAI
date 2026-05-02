@@ -1,0 +1,51 @@
+# .dockerignore raiz — Exclui arquivos do contexto Docker em builds da raiz
+
+# Dependências
+node_modules/
+**/node_modules/
+
+# Builds
+**/dist/
+**/.next/
+
+# Variáveis de ambiente
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Dados persistentes (montados via volume)
+data/
+vault/
+**/vault/
+
+# Cache do banco
+**/*.sqlite
+**/*.sqlite-shm
+**/*.sqlite-wal
+
+# Logs
+*.log
+logs/
+**/logs/
+**/*.log
+
+# Arquivos de agent/configuração interna
+.agent/
+.agent-sources/
+.claude/
+.codex/
+AGENTS.md
+CLAUDE.md
+AGENT_WORKSPACE.md
+
+# TypeScript cache
+**/*.tsbuildinfo
+
+# Git
+.git/
+.gitignore
+
+# Sistema
+.DS_Store
+Thumbs.db

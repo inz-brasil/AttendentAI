@@ -1,0 +1,85 @@
+# docker-compose.prod.yml — Overrides de produção para deploy no EasyPanel
+# Uso: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Este arquivo SOBREPÕE o docker-compose.yml com configurações de produção:
+# - restart: always em todos os serviços
+# - Redis sem porta exposta externamente (apenas rede interna)
+# - Limites de memória e CPU
+# - Healthchecks mais rigorosos
+
+services:
+  redis:
+    restart: always
+    # Produção: Redis não expõe porta para fora — apenas acessível internamente
+    ports: !reset []
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"
+        reservations:
+          memory: 128m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  api:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+        reservations:
+          memory: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"fetch('http://localhost:3001/health').then(r => r.ok ? process.exit(0) : process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    # Em produção, logar em JSON estruturado
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  worker:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+        reservations:
+          memory: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  dashboard:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"
+        reservations:
+          memory: 128m
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', (r) => { r.statusCode < 400 ? process.exit(0) : process.exit(1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"

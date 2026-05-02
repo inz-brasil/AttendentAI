@@ -1,0 +1,24 @@
+{
+  "name": "attendentai",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/api",
+    "apps/dashboard"
+  ],
+  "scripts": {
+    "dev": "bun run dev:api & bun run dev:dashboard",
+    "build": "bun run build:api && bun run build:dashboard",
+    "start": "bun run start:api & bun run start:dashboard",
+    "dev:api": "bun --cwd apps/api run dev",
+    "dev:dashboard": "bun --cwd apps/dashboard run dev",
+    "build:api": "bun --cwd apps/api run build",
+    "build:dashboard": "bun --cwd apps/dashboard run build",
+    "start:api": "bun --cwd apps/api run start",
+    "start:dashboard": "bun --cwd apps/dashboard run start"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "^5.4.0"
+  }
+}

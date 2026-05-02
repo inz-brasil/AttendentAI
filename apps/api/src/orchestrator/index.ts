@@ -1,0 +1,245 @@
+// index.ts — QueryEngine orquestra agentes com contexto isolado e resposta final
+import { eq } from 'drizzle-orm'
+import pino from 'pino'
+import { ClassifierAgent } from '../agents/classifier'
+import { IdentifierAgent, type LeadFieldsToUpdate } from '../agents/identifier'
+import { MemoryAgent } from '../agents/memory-agent'
+import { ResponderAgent } from '../agents/responder'
+import { db } from '../db/client'
+import { leads } from '../db/schema'
+import {
+  getOrCreateLead,
+  loadMemory,
+  saveMessage,
+  updateLead,
+  type ContactInfo,
+  type LeadUpdateInput
+} from '../memory/persistent'
+import { markMessageProcessed } from '../monitoring/status'
+import { acquirePhoneLock, releasePhoneLock, waitForPhoneLockRelease } from '../queue/redis'
+import { broadcast } from '../websocket/server'
+import { PromptBuilder } from './prompt-builder'
+
+export interface WebhookPayload {
+  phone: string
+  name: string
+  message: string
+  message_type: 'text' | 'audio' | 'image'
+  timestamp: number
+  session_id?: string | undefined
+  contact_info?: ContactInfo | undefined
+}
+
+export interface WebhookResponse {
+  success: boolean
+  message: string
+  audio_requested: boolean
+  metadata: {
+    lead_id: string
+    agent_used: string
+    tokens_used: number
+    processing_ms: number
+  }
+}
+
+export interface QueryEngineOptions {
+  skipLock?: boolean
+}
+
+export class PhoneLockedError extends Error {
+  constructor(phone: string) {
+    super(`Mensagem anterior ainda processando para ${phone}`)
+    this.name = 'PhoneLockedError'
+  }
+}
+
+const log = pino({ name: 'attendentai-orchestrator' })
+
+export class QueryEngine {
+  private readonly classifier = new ClassifierAgent()
+  private readonly identifier = new IdentifierAgent()
+  private readonly memoryAgent = new MemoryAgent()
+  private readonly promptBuilder = new PromptBuilder()
+  private readonly responder = new ResponderAgent()
+
+  /**
+   * Processa um payload de webhook e retorna a resposta final.
+   * @param payload Dados recebidos do n8n.
+   * @returns Resposta para o webhook.
+   */
+  async process(payload: WebhookPayload, options: QueryEngineOptions = {}): Promise<WebhookResponse> {
+    if (options.skipLock) {
+      return this.processUnlocked(payload)
+    }
+
+    const token = crypto.randomUUID()
+    const acquired = await acquirePhoneLock(payload.phone, token, 30)
+    if (!acquired) {
+      const released = await waitForPhoneLockRelease(payload.phone, 10000)
+      if (!released) {
+        throw new PhoneLockedError(payload.phone)
+      }
+
+      const acquiredAfterWait = await acquirePhoneLock(payload.phone, token, 30)
+      if (!acquiredAfterWait) {
+        throw new PhoneLockedError(payload.phone)
+      }
+    }
+
+    try {
+      return await this.processUnlocked(payload)
+    } finally {
+      await releasePhoneLock(payload.phone, token)
+    }
+  }
+
+  private async processUnlocked(payload: WebhookPayload): Promise<WebhookResponse> {
+    const startedAt = Date.now()
+    const lead = await getOrCreateLead(payload.phone, payload.name, payload.contact_info)
+    const memory = await loadMemory(payload.phone)
+
+    const classification = await this.classifier.run({
+      phone: payload.phone,
+      message: payload.message,
+      history_summary: memory.history_summary
+    })
+
+    const identification = await this.identifier.run({
+      phone: payload.phone,
+      message: payload.message,
+      current_lead: {
+        name: lead?.name ?? null,
+        email: lead?.email ?? null,
+        city: lead?.city ?? null,
+        status: lead?.status ?? null,
+        tags: lead?.tags ?? null
+      }
+    })
+
+    const leadUpdates = this.normalizeLeadUpdates(identification.fields_to_update)
+    const hasLeadUpdates = Object.keys(leadUpdates).length > 0
+    if (hasLeadUpdates) {
+      await updateLead(payload.phone, leadUpdates)
+    }
+
+    const refreshedLead = await this.loadLeadForResponse(payload.phone)
+    if (hasLeadUpdates && refreshedLead) {
+      await this.memoryAgent.updateLeadMemory(payload.phone, {
+        phone: refreshedLead.phone,
+        name: refreshedLead.name,
+        email: refreshedLead.email,
+        city: refreshedLead.city,
+        status: refreshedLead.status,
+        tags: refreshedLead.tags
+      })
+    }
+    const refreshedMemory = await loadMemory(payload.phone)
+    const vaultContext = await this.memoryAgent.fetchRelevant(payload.phone, classification.intent)
+    const memorySummary = this.buildMemorySummary(
+      refreshedMemory.lead_summary,
+      refreshedMemory.history_summary,
+      refreshedMemory.recent_messages
+    )
+    const systemPrompt = await this.promptBuilder.build({
+      responderId: 'responder',
+      lead: {
+        name: refreshedLead?.name ?? null,
+        city: refreshedLead?.city ?? null,
+        status: refreshedLead?.status ?? null,
+        tags: refreshedLead?.tags ?? null
+      },
+      memory: refreshedMemory,
+      vaultContext
+    })
+
+    await saveMessage(payload.phone, 'user', payload.message, {
+      message_type: payload.message_type,
+      intent: classification.intent
+    })
+
+    const response = await this.responder.run({
+      phone: payload.phone,
+      system_prompt: systemPrompt,
+      message: payload.message,
+      lead_name: refreshedLead?.name ?? payload.name,
+      memory_summary: memorySummary,
+      vault_context: vaultContext,
+      classification
+    })
+
+    await saveMessage(payload.phone, 'assistant', response.text, {
+      message_type: 'text',
+      audio_requested: response.audio_requested,
+      intent: classification.intent,
+      tokens_used: response.tokens_used,
+      agent_used: 'responder',
+      processing_ms: response.duration_ms
+    })
+
+    broadcast({
+      type: 'new_message',
+      phone: payload.phone,
+      name: refreshedLead?.name ?? payload.name,
+      message: payload.message,
+      response: response.text,
+      agent: 'responder',
+      intent: classification.intent,
+      timestamp: new Date().toISOString()
+    })
+    markMessageProcessed()
+
+    void this.memoryAgent
+      .saveNote(
+        payload.phone,
+        [
+          `Lead: ${refreshedLead?.name ?? payload.name} (${payload.phone})`,
+          `Intenção: ${classification.intent}`,
+          `Usuário: ${payload.message}`,
+          `Assistente: ${response.text}`
+        ].join('\n')
+      )
+      .catch((error: unknown) => {
+        log.error({ err: error, phone: payload.phone }, 'failed to save memory note')
+      })
+
+    return {
+      success: true,
+      message: response.text,
+      audio_requested: response.audio_requested,
+      metadata: {
+        lead_id: payload.phone,
+        agent_used: 'responder',
+        tokens_used: response.tokens_used,
+        processing_ms: Date.now() - startedAt
+      }
+    }
+  }
+
+  private normalizeLeadUpdates(fields: LeadFieldsToUpdate): LeadUpdateInput {
+    return fields
+  }
+
+  private async loadLeadForResponse(phone: string) {
+    const [lead] = await db.select().from(leads).where(eq(leads.phone, phone)).limit(1)
+    return lead
+  }
+
+  private buildMemorySummary(
+    leadSummary: string,
+    historySummary: string,
+    recentMessages: Array<{ role: string | null; content: string | null }>
+  ): string {
+    const recent = recentMessages
+      .slice(-5)
+      .map((message) => `${message.role ?? 'unknown'}: ${message.content ?? ''}`)
+      .join('\n')
+
+    return [
+      leadSummary ? `Memória do lead:\n${leadSummary}` : null,
+      historySummary ? `Histórico do vault:\n${historySummary}` : null,
+      recent ? `Mensagens recentes:\n${recent}` : null
+    ]
+      .filter((item): item is string => Boolean(item))
+      .join('\n\n')
+  }
+}

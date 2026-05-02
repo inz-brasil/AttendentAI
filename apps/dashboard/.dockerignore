@@ -1,0 +1,38 @@
+# apps/dashboard/.dockerignore — Arquivos excluídos do contexto de build do dashboard
+
+# Dependências (instaladas no container)
+node_modules/
+
+# Build artifacts (gerados no container)
+.next/
+
+# Variáveis de ambiente (nunca no container)
+.env
+.env.*
+.env.local
+.env.production
+
+# Dados persistentes
+vault/
+data/
+
+# Logs
+*.log
+logs/
+
+# Arquivos de desenvolvimento
+.agent/
+.agent-sources/
+.claude/
+.codex/
+AGENTS.md
+CLAUDE.md
+docs/
+
+# Cache do TypeScript
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db

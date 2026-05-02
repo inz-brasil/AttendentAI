@@ -1,0 +1,36 @@
+# Ambiente
+.env
+.env.local
+.env.production
+
+# Dados persistentes
+data/
+vault/
+
+# Documentos de planejamento (ficam so local)
+docs/planning/
+docs/agents/
+SPEC_ATTENDENT_AI.md
+GUIA_PROMPTS_ATTENDENTAI.md
+
+# Skills e regras dos agentes (configuracao local)
+.claude/
+.codex/
+.agent/
+.agent-sources/
+AGENTS.md
+CLAUDE.md
+AGENT_WORKSPACE.md
+agent-rules/
+rules.md
+
+# Build
+node_modules/
+.next/
+dist/
+*.js.map
+*.tsbuildinfo
+
+# Logs
+*.log
+logs/

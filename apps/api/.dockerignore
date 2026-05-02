@@ -1,0 +1,38 @@
+# apps/api/.dockerignore — Arquivos excluídos do contexto de build da API
+
+# Dependências (instaladas no container)
+node_modules/
+
+# Variáveis de ambiente (nunca no container)
+.env
+.env.*
+
+# Dados persistentes (montados via volume)
+vault/
+data/
+
+# Artefatos de build locais
+dist/
+*.js.map
+
+# Logs
+*.log
+logs/
+
+# Cache do banco local de desenvolvimento
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Arquivos de desenvolvimento
+.agent/
+.agent-sources/
+.claude/
+.codex/
+AGENTS.md
+CLAUDE.md
+docs/
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
