@@ -1,0 +1,76 @@
+{
+  "services": [
+    {
+      "type": "app",
+      "data": {
+        "serviceName": "attendentai-api",
+        "source": {
+          "type": "image",
+          "image": "ghcr.io/inz-brasil/attendentai-api:latest"
+        },
+        "domains": [
+          {
+            "host": "api-$(EASYPANEL_DOMAIN)",
+            "port": 3001
+          }
+        ],
+        "mounts": [
+          {
+            "type": "volume",
+            "name": "data",
+            "mountPath": "/data"
+          },
+          {
+            "type": "volume",
+            "name": "vault",
+            "mountPath": "/vault"
+          }
+        ],
+        "env": "OPENAI_API_KEY=troque_no_easypanel\nOPENAI_BASE_URL=https://api.openai.com/v1\nWEBHOOK_SECRET=troque_por_um_secret_grande\nDATABASE_URL=file:/data/db.sqlite\nSQLITE_JOURNAL_MODE=DELETE\nREDIS_URL=redis://$(PROJECT_NAME)_redis:6379\nMODEL_ORCHESTRATOR=gpt-4o-mini\nMODEL_CLASSIFIER=gpt-4o-mini\nMODEL_IDENTIFIER=gpt-4o-mini\nMODEL_RESPONDER=gpt-4o\nMODEL_SUMMARIZER=gpt-4o-mini\nMODEL_MEMORY=gpt-4o-mini\nMAX_TOKENS_RESPONSE=800\nMAX_TOKENS_CONTEXT=4000\nMAX_MESSAGES_IN_CONTEXT=20\nWEBHOOK_TIMEOUT_MS=25000\nMAX_CONCURRENT_CHATS=50\nLOCK_TTL_SECONDS=30\nVAULT_PATH=/vault\nDASHBOARD_PORT=3000\nAPI_PORT=3001\nDASHBOARD_SECRET=troque_por_senha_forte_dashboard\nNEXT_PUBLIC_API_URL=https://api-$(EASYPANEL_DOMAIN)\nAUDIO_AUTO_ENABLED=true\nAUDIO_MAX_CHARS=300"
+      }
+    },
+    {
+      "type": "app",
+      "data": {
+        "serviceName": "attendentai-worker",
+        "source": {
+          "type": "image",
+          "image": "ghcr.io/inz-brasil/attendentai-api:latest"
+        },
+        "deploy": {
+          "command": "bun run src/queue/worker.ts"
+        },
+        "mounts": [
+          {
+            "type": "volume",
+            "name": "data",
+            "mountPath": "/data"
+          },
+          {
+            "type": "volume",
+            "name": "vault",
+            "mountPath": "/vault"
+          }
+        ],
+        "env": "OPENAI_API_KEY=troque_no_easypanel\nOPENAI_BASE_URL=https://api.openai.com/v1\nWEBHOOK_SECRET=troque_por_um_secret_grande\nDATABASE_URL=file:/data/db.sqlite\nSQLITE_JOURNAL_MODE=DELETE\nREDIS_URL=redis://$(PROJECT_NAME)_redis:6379\nMODEL_ORCHESTRATOR=gpt-4o-mini\nMODEL_CLASSIFIER=gpt-4o-mini\nMODEL_IDENTIFIER=gpt-4o-mini\nMODEL_RESPONDER=gpt-4o\nMODEL_SUMMARIZER=gpt-4o-mini\nMODEL_MEMORY=gpt-4o-mini\nMAX_TOKENS_RESPONSE=800\nMAX_TOKENS_CONTEXT=4000\nMAX_MESSAGES_IN_CONTEXT=20\nWEBHOOK_TIMEOUT_MS=25000\nMAX_CONCURRENT_CHATS=50\nLOCK_TTL_SECONDS=30\nVAULT_PATH=/vault\nDASHBOARD_PORT=3000\nAPI_PORT=3001\nDASHBOARD_SECRET=troque_por_senha_forte_dashboard\nNEXT_PUBLIC_API_URL=https://api-$(EASYPANEL_DOMAIN)\nAUDIO_AUTO_ENABLED=true\nAUDIO_MAX_CHARS=300"
+      }
+    },
+    {
+      "type": "app",
+      "data": {
+        "serviceName": "attendentai-dashboard",
+        "source": {
+          "type": "image",
+          "image": "ghcr.io/inz-brasil/attendentai-dashboard:latest"
+        },
+        "domains": [
+          {
+            "host": "$(EASYPANEL_DOMAIN)",
+            "port": 3000
+          }
+        ],
+        "env": "NODE_ENV=production\nPORT=3000\nHOSTNAME=0.0.0.0\nDASHBOARD_SECRET=troque_por_senha_forte_dashboard\nAPI_URL=http://$(PROJECT_NAME)_attendentai-api:3001\nNEXT_PUBLIC_API_URL=https://api-$(EASYPANEL_DOMAIN)"
+      }
+    }
+  ]
+}

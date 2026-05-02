@@ -11,7 +11,11 @@ export interface LiveEvent {
 }
 
 function getWsUrl(path: string): string {
-  const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+  const inferredApiHost =
+    typeof window !== 'undefined'
+      ? `${window.location.protocol}//api-${window.location.host}`
+      : 'http://localhost:3001'
+  const base = process.env.NEXT_PUBLIC_API_URL || inferredApiHost
   const url = new URL(path, base)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.toString()
