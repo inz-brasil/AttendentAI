@@ -7,7 +7,7 @@ import { Badge } from '../../../components/ui/badge'
 import { useToast } from '../../../components/ui/toast-provider'
 import type { Agent, Skill } from '../../../lib/api'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '/api/backend')
 
 const TYPE_LABEL: Record<string, string> = {
   orchestrator: 'Orquestrador',

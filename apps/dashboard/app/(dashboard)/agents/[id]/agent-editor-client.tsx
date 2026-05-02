@@ -8,7 +8,7 @@ import { CodeEditor } from '../../../../components/ui/code-editor'
 import { useToast } from '../../../../components/ui/toast-provider'
 import type { Agent, AgentMetrics, AgentSkillRow, Skill } from '../../../../lib/api'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '/api/backend')
 
 const MODELS = [
   { value: 'gpt-4o', label: 'GPT-4o' },

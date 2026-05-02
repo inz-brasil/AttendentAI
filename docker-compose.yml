@@ -109,13 +109,14 @@ services:
       dockerfile: Dockerfile
       args:
         # NEXT_PUBLIC_* precisam ser passados em build-time (são inlined pelo webpack)
-        NEXT_PUBLIC_API_URL: http://api:3001
+        NEXT_PUBLIC_API_URL: http://localhost:3001
     container_name: attendentai-dashboard
     restart: unless-stopped
     env_file:
       - .env
     environment:
       PORT: "3000"
+      API_URL: http://api:3001
     ports:
       - "3000:3000"
     networks:

@@ -27,7 +27,7 @@ interface LeadProfileClientProps {
 
 const STATUS_OPTIONS = ['novo', 'ativo', 'lead_quente', 'convertido', 'inativo'] as const
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '/api/backend')
 
 function statusVariant(s: string | null): 'success' | 'accent' | 'danger' | 'muted' | 'cyan' {
   switch (s) {

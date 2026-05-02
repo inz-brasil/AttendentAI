@@ -100,7 +100,7 @@ export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Ele
   async function handleDeleteHistory(phone: string) {
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/leads/${encodeURIComponent(phone)}/history`,
+        `${(process.env.NEXT_PUBLIC_API_URL || '/api/backend')}/api/leads/${encodeURIComponent(phone)}/history`,
         { method: 'DELETE' }
       )
       if (!res.ok) throw new Error('Erro ao apagar histórico')
@@ -115,7 +115,7 @@ export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Ele
   async function handleDeleteLead(phone: string) {
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/leads/${encodeURIComponent(phone)}`,
+        `${(process.env.NEXT_PUBLIC_API_URL || '/api/backend')}/api/leads/${encodeURIComponent(phone)}`,
         { method: 'DELETE' }
       )
       if (!res.ok) throw new Error('Erro ao remover lead')

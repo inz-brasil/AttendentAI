@@ -7,7 +7,7 @@ import { Badge } from '../../../components/ui/badge'
 import type { LiveEvent } from '../../../lib/ws'
 import type { Lead } from '../../../lib/api'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '/api/backend')
 
 interface LiveMessage {
   phone: string

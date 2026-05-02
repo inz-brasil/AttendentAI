@@ -173,6 +173,7 @@ AUDIO_MAX_CHARS=300
 
 #### Dashboard — variáveis obrigatórias:
 ```
+API_URL=http://api:3001
 NEXT_PUBLIC_API_URL=https://api.seudominio.com
 DASHBOARD_SECRET=senha_segura_dashboard
 ```
@@ -254,6 +255,7 @@ curl https://api.seudominio.com/health
 | `MODEL_SUMMARIZER` | ✅ | Modelo do summarizador de memória |
 | `MODEL_MEMORY` | ✅ | Modelo do agente de memória |
 | `NEXT_PUBLIC_API_URL` | ✅ | URL pública da API (usada pelo dashboard) |
+| `API_URL` | ✅ | URL interna da API para o dashboard no Docker/EasyPanel |
 | `DASHBOARD_SECRET` | ✅ | Senha de acesso ao dashboard |
 | `MAX_TOKENS_RESPONSE` | ❌ | Limite de tokens da resposta (default: 800) |
 | `MAX_TOKENS_CONTEXT` | ❌ | Limite de tokens do contexto (default: 4000) |

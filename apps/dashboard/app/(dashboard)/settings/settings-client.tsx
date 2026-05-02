@@ -5,7 +5,7 @@ import { useToast } from '../../../components/ui/toast-provider'
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog'
 import type { Setting } from '../../../lib/api'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '/api/backend')
 
 const MODELS = ['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo', 'gpt-4-turbo']
 const TONES = [

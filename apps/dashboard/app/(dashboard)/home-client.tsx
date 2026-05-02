@@ -55,7 +55,7 @@ export function HomeClient({ initialData }: HomeClientProps): JSX.Element {
 
   const refresh = useCallback(async () => {
     setRefreshing(true)
-    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+    const apiBase = (process.env.NEXT_PUBLIC_API_URL || '/api/backend')
     try {
       const [leadsRes, healthRes] = await Promise.allSettled([
         fetch(`${apiBase}/api/leads`).then(r => r.json()),

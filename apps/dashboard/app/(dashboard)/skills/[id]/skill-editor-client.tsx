@@ -9,7 +9,7 @@ import { Badge } from '../../../../components/ui/badge'
 import { useToast } from '../../../../components/ui/toast-provider'
 import type { Skill } from '../../../../lib/api'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '/api/backend')
 
 const CATEGORIES = ['atendimento', 'vendas', 'suporte', 'agendamento', 'coleta', 'fallback', 'outro']
 const PRIORITIES = ['high', 'medium', 'low'] as const

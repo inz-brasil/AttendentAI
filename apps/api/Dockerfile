@@ -63,4 +63,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD bun -e "const r = await fetch('http://localhost:3001/health'); if (!r.ok) process.exit(1)"
 
 # Executar diretamente com Bun (sem build step — Bun executa TS nativamente)
-CMD ["sh", "-c", "bun run src/scripts/migrate.ts && bun run src/scripts/start-with-backup.ts"]
+CMD ["sh", "-c", "bun run src/scripts/migrate.ts && bun run src/db/seed.ts && bun run src/scripts/start-with-backup.ts"]
