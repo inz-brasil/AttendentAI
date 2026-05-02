@@ -6,8 +6,8 @@ export const authCookieName = cookieName
 
 function getSecret(): string {
   const secret = process.env.DASHBOARD_SECRET
-  if (!secret || secret.length < 16) {
-    throw new Error('DASHBOARD_SECRET must be configured with at least 16 characters')
+  if (!secret) {
+    throw new Error('DASHBOARD_SECRET must be configured')
   }
 
   return secret
