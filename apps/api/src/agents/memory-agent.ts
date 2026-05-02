@@ -1,7 +1,7 @@
 // memory-agent.ts — Lê contexto do vault e gera notas persistentes de conversa
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { env } from '../config/env'
-import { VaultManager } from '../vault/manager'
+import { VaultManager } from '../vault-manager/manager'
 import { BaseAgent, type AgentInput, type AgentRunMetadata } from './base-agent'
 
 const memorySystemPrompt = `Você resume uma conversa de atendimento para uma nota operacional curta.

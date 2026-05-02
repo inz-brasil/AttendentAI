@@ -2,7 +2,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { env } from '../config/env'
-import { VaultManager } from '../vault/manager'
+import { VaultManager } from '../vault-manager/manager'
 
 const phoneParamsSchema = z.object({ phone: z.string().min(1) })
 const fileParamsSchema = z.object({

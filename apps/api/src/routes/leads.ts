@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../db/client'
 import { leads, messages } from '../db/schema'
-import { VaultManager } from '../vault/manager'
+import { VaultManager } from '../vault-manager/manager'
 
 const leadParamsSchema = z.object({ phone: z.string().min(1) })
 const leadBodySchema = z.object({

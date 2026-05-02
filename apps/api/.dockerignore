@@ -10,8 +10,6 @@ node_modules/
 # Dados persistentes (montados via volume)
 /vault/
 /data/
-!src/vault/
-!src/vault/**
 
 # Artefatos de build locais
 dist/

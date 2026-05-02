@@ -5,7 +5,7 @@ import pino from 'pino'
 import { env } from '../config/env'
 import { db } from '../db/client'
 import { messages, tokenUsage } from '../db/schema'
-import { VaultManager } from '../vault/manager'
+import { VaultManager } from '../vault-manager/manager'
 
 const summarizerPrompt =
   'Resuma esta conversa em tópicos objetivos: o que o cliente discutiu, suas dúvidas, objeções levantadas, interesse demonstrado e status atual. Use bullet points curtos.'

@@ -6,7 +6,7 @@ import { db } from '../db/client'
 import { settings } from '../db/schema'
 import { SkillsLoader } from '../skills/loader'
 import type { MemorySnapshot } from '../memory/persistent'
-import { VaultManager } from '../vault/manager'
+import { VaultManager } from '../vault-manager/manager'
 
 export interface LeadPromptContext {
   name: string | null

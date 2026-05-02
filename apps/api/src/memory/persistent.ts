@@ -4,7 +4,7 @@ import pino from 'pino'
 import { env } from '../config/env'
 import { db } from '../db/client'
 import { conversations, leads, messages, type LeadStatus, type MessageRole, type MessageType } from '../db/schema'
-import { VaultManager } from '../vault/manager'
+import { VaultManager } from '../vault-manager/manager'
 import { Summarizer } from './summarizer'
 
 export interface ContactInfo {
