@@ -90,6 +90,7 @@ export function AgentEditorClient({
   )
   const [savingSkills, setSavingSkills] = useState(false)
   const [dragging, setDragging] = useState<number | null>(null)
+  const [skillToAdd, setSkillToAdd] = useState('')
 
   // ------- HANDLERS -------
 
@@ -175,9 +176,25 @@ export function AgentEditorClient({
     setAgentSkillList(prev => prev.map(s => s.skill_id === skill_id ? { ...s, enabled: !s.enabled } : s))
   }
 
+  function addSkillToAgent() {
+    if (!skillToAdd) return
+
+    setAgentSkillList(prev => {
+      const lastOrder = Math.max(-1, ...prev.filter(s => s.enabled).map(s => s.order))
+      return prev.map(skill =>
+        skill.skill_id === skillToAdd ? { ...skill, enabled: true, order: lastOrder + 1 } : skill
+      )
+    })
+    setSkillToAdd('')
+  }
+
   // Preço do modelo selecionado
   const pricePerK = MODEL_PRICE[identity.model] ?? 0.001
   const estimatedCost = (initialMetrics.total_tokens / 1000) * pricePerK
+  const availableSkills = agentSkillList
+    .filter(item => !item.enabled)
+    .map(item => allSkills.find(skill => skill.id === item.skill_id))
+    .filter((skill): skill is Skill => Boolean(skill))
 
   return (
     <div className="space-y-6">
@@ -359,6 +376,34 @@ export function AgentEditorClient({
               <button onClick={saveSkills} disabled={savingSkills} className="save-btn">
                 {savingSkills ? 'Salvando…' : 'Salvar skills'}
               </button>
+            </div>
+
+            <div className="rounded-xl border border-line bg-panel p-4 shadow-panel">
+              <div className="font-mono text-[11px] uppercase tracking-[0.15em] text-muted">Adicionar skill ao agente</div>
+              <div className="mt-3 flex gap-2">
+                <select
+                  value={skillToAdd}
+                  onChange={event => setSkillToAdd(event.target.value)}
+                  className="field-input flex-1"
+                >
+                  <option value="">Selecione uma skill disponível</option>
+                  {availableSkills.map(skill => (
+                    <option key={skill.id} value={skill.id}>
+                      {skill.name}{skill.category ? ` · ${skill.category}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={addSkillToAgent}
+                  disabled={!skillToAdd}
+                  className="focus-ring h-9 rounded-md border border-accent/40 bg-accent/10 px-4 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:cursor-not-allowed disabled:border-line disabled:bg-elevated disabled:text-muted"
+                >
+                  Adicionar
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-muted/70">
+                Depois de adicionar, clique em “Salvar skills” para persistir o vínculo no agente.
+              </p>
             </div>
 
             <div className="rounded-xl border border-line overflow-hidden">

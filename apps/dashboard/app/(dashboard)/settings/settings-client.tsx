@@ -28,6 +28,32 @@ interface SettingsClientProps {
   initialSettings: Setting[]
 }
 
+/** Resolve a URL pública da API para integrações externas. */
+function resolvePublicApiUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim()
+  if (configured) {
+    return configured.replace(/\/$/, '')
+  }
+
+  if (typeof window === 'undefined') {
+    return 'https://seu-dominio'
+  }
+
+  const url = new URL(window.location.href)
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    url.port = '3001'
+    return url.origin
+  }
+
+  // EasyPanel gera hosts por serviço. Quando o env público não vem no bundle,
+  // inferimos a API a partir do host do dashboard para não mostrar uma URL inútil.
+  url.hostname = url.hostname
+    .replace(/^attendentai-/, 'attendentai-api-')
+    .replace('attendentai-dashboard', 'attendentai-api')
+
+  return url.origin
+}
+
 /** Converte array de settings em mapa chave→valor */
 function toMap(settings: Setting[]): Record<string, string> {
   return Object.fromEntries(settings.map(s => [s.key, s.value ?? '']))
@@ -121,7 +147,7 @@ export function SettingsClient({ initialSettings }: SettingsClientProps): JSX.El
     return `${'•'.repeat(Math.max(0, value.length - 4))}${last4}`
   }
 
-  const webhookUrl = `${typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':3001') : 'https://seu-dominio'}/api/webhook`
+  const webhookUrl = `${resolvePublicApiUrl()}/api/webhook?sync=true`
 
   return (
     <div className="space-y-8 max-w-3xl">

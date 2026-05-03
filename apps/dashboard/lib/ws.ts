@@ -11,14 +11,30 @@ export interface LiveEvent {
 }
 
 function getWsUrl(path: string): string {
-  const inferredApiHost =
-    typeof window !== 'undefined'
-      ? `${window.location.protocol}//api-${window.location.host}`
-      : 'http://localhost:3001'
-  const base = process.env.NEXT_PUBLIC_API_URL || inferredApiHost
+  const base = process.env.NEXT_PUBLIC_API_URL || inferApiHost()
   const url = new URL(path, base)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.toString()
+}
+
+function inferApiHost(): string {
+  if (typeof window === 'undefined') {
+    return 'http://localhost:3001'
+  }
+
+  const url = new URL(window.location.href)
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    url.port = '3001'
+    return url.origin
+  }
+
+  // EasyPanel usa um host por serviço. Sem NEXT_PUBLIC_API_URL no bundle,
+  // inferimos a API a partir do domínio público do dashboard.
+  url.hostname = url.hostname
+    .replace(/^attendentai-/, 'attendentai-api-')
+    .replace('attendentai-dashboard', 'attendentai-api')
+
+  return url.origin
 }
 
 export class LiveWebSocketClient {

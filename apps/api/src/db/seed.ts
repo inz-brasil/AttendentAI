@@ -1,5 +1,5 @@
 // seed.ts — Insere agentes e skills padrão de forma idempotente
-import { eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { db, closeDb } from './client'
 import { agentSkills, agents, settings, skills } from './schema'
 
@@ -152,48 +152,28 @@ async function seed(): Promise<void> {
   await db
     .insert(agents)
     .values(defaultAgents.map((agent) => ({ ...agent, updated_at: now })))
-    .onConflictDoUpdate({
-      target: agents.id,
-      set: {
-        description: sql`excluded.description`,
-        system_prompt: sql`excluded.system_prompt`,
-        updated_at: now
-      }
-    })
+    .onConflictDoNothing()
 
   await db
     .insert(settings)
     .values(defaultSettings.map((setting) => ({ ...setting, updated_at: now })))
-    .onConflictDoUpdate({
-      target: settings.key,
-      set: {
-        value: sql`excluded.value`,
-        description: sql`excluded.description`,
-        updated_at: now
-      }
-    })
+    .onConflictDoNothing()
 
   await db
     .insert(skills)
     .values(defaultSkills.map(({ template, ...skill }) => ({ ...skill, updated_at: now })))
-    .onConflictDoUpdate({
-      target: skills.slug,
-      set: {
-        description: sql`excluded.description`,
-        content: sql`excluded.content`,
-        when_to_use: sql`excluded.when_to_use`,
-        updated_at: now
-      }
-    })
+    .onConflictDoNothing()
 
-  await db.delete(agentSkills).where(eq(agentSkills.agent_id, 'responder'))
-  await db.insert(agentSkills).values(
-    defaultSkills.map((skill, index) => ({
-      agent_id: 'responder',
-      skill_id: skill.id,
-      order: index
-    }))
-  )
+  const existingResponderSkills = await db.select().from(agentSkills).where(eq(agentSkills.agent_id, 'responder'))
+  if (existingResponderSkills.length === 0) {
+    await db.insert(agentSkills).values(
+      defaultSkills.map((skill, index) => ({
+        agent_id: 'responder',
+        skill_id: skill.id,
+        order: index
+      }))
+    )
+  }
 }
 
 try {
