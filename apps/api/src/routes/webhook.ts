@@ -13,10 +13,13 @@ const webhookPayloadSchema = z.object({
   message_type: z.enum(['text', 'audio', 'image']),
   timestamp: z.number().int(),
   session_id: z.string().optional(),
+  current_time: z.string().optional(),
+  timezone: z.string().optional(),
   contact_info: z
     .object({
       email: z.string().optional(),
-      city: z.string().optional()
+      city: z.string().optional(),
+      timezone: z.string().optional()
     })
     .catchall(z.unknown())
     .optional()

@@ -27,6 +27,8 @@ export interface WebhookPayload {
   message_type: 'text' | 'audio' | 'image'
   timestamp: number
   session_id?: string | undefined
+  current_time?: string | undefined
+  timezone?: string | undefined
   contact_info?: ContactInfo | undefined
 }
 
@@ -95,6 +97,7 @@ export class QueryEngine {
 
   private async processUnlocked(payload: WebhookPayload): Promise<WebhookResponse> {
     const startedAt = Date.now()
+    const runtimeContext = this.resolveRuntimeContext(payload)
     const lead = await getOrCreateLead(payload.phone, payload.name, payload.contact_info)
     const memory = await loadMemory(payload.phone)
 
@@ -143,10 +146,13 @@ export class QueryEngine {
     const systemPrompt = await this.promptBuilder.build({
       responderId: 'responder',
       lead: {
+        phone: payload.phone,
         name: refreshedLead?.name ?? null,
         city: refreshedLead?.city ?? null,
         status: refreshedLead?.status ?? null,
-        tags: refreshedLead?.tags ?? null
+        tags: refreshedLead?.tags ?? null,
+        currentTime: runtimeContext.currentTime,
+        timezone: runtimeContext.timezone
       },
       memory: refreshedMemory,
       vaultContext
@@ -217,6 +223,24 @@ export class QueryEngine {
 
   private normalizeLeadUpdates(fields: LeadFieldsToUpdate): LeadUpdateInput {
     return fields
+  }
+
+  private resolveRuntimeContext(payload: WebhookPayload): { currentTime: string; timezone: string } {
+    const timezone = payload.timezone ?? this.getStringContactField(payload.contact_info, 'timezone') ?? 'America/Sao_Paulo'
+    const currentTime =
+      payload.current_time ??
+      new Intl.DateTimeFormat('pt-BR', {
+        timeZone: timezone,
+        dateStyle: 'full',
+        timeStyle: 'short'
+      }).format(new Date())
+
+    return { currentTime, timezone }
+  }
+
+  private getStringContactField(contactInfo: ContactInfo | undefined, key: string): string | undefined {
+    const value = contactInfo?.[key]
+    return typeof value === 'string' && value.trim() ? value : undefined
   }
 
   private async loadLeadForResponse(phone: string) {

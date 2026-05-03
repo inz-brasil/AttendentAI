@@ -12,9 +12,10 @@ node_modules/
 .env.local
 .env.production
 
-# Dados persistentes
-vault/
-data/
+# Dados persistentes na raiz do app.
+# Não usar "vault/" sem barra inicial: isso exclui app/(dashboard)/vault/ do build Next.
+/vault/
+/data/
 
 # Logs
 *.log

@@ -9,10 +9,13 @@ import type { MemorySnapshot } from '../memory/persistent'
 import { VaultManager } from '../vault-manager/manager'
 
 export interface LeadPromptContext {
+  phone: string
   name: string | null
   city: string | null
   status: string | null
   tags: string[] | null
+  currentTime: string
+  timezone: string
 }
 
 export interface PromptBuilderInput {
@@ -64,6 +67,8 @@ ${antiHallucinationRules}`,
       `CAMADA 2 — SKILLS ATIVAS
 ${skillsContext || 'Nenhuma skill ativa vinculada ao respondedor.'}`,
       `CAMADA 3 — CONTEXTO DINÂMICO DO LEAD
+Telefone: ${input.lead.phone}
+Data/hora atual (${input.lead.timezone}): ${input.lead.currentTime}
 Nome: ${input.lead.name ?? 'não informado'}
 Cidade: ${input.lead.city ?? 'não informada'}
 Interesse: ${this.extractInterest(input.memory.lead_summary, input.vaultContext)}
