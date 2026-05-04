@@ -42,6 +42,10 @@ function canCompact(lastCompactionAt: Date | null, now: Date): boolean {
   return now.getTime() - lastCompactionAt.getTime() >= MEMORY_CONFIG.MIN_COMPACTION_INTERVAL_MS
 }
 
+function compactionMessageLimit(): number {
+  return MEMORY_CONFIG.COMPACTION_THRESHOLD + MEMORY_CONFIG.MESSAGES_PRESERVED_AFTER_COMPACTION
+}
+
 export class Summarizer {
   private readonly vault: VaultManager
 
@@ -63,7 +67,7 @@ export class Summarizer {
     }
 
     const rows = await db.select({ id: messages.id }).from(messages).where(eq(messages.lead_phone, phone))
-    return rows.length >= MEMORY_CONFIG.COMPACTION_THRESHOLD
+    return rows.length >= compactionMessageLimit()
   }
 
   /**

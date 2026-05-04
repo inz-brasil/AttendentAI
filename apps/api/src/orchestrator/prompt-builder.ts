@@ -24,6 +24,7 @@ export interface PromptBuilderInput {
   lead: LeadPromptContext
   memory: MemorySnapshot
   vaultContext: string
+  skillContext: string
   selectedSkillIds?: string[]
 }
 
@@ -81,7 +82,7 @@ export class PromptBuilder {
     const basePrompt = this.replacePromptVariables(configuredPrompt, input, agentName, companyName, agentTone)
     const prompt = [
       this.buildIdentityLayer({ basePrompt, agentName, companyName, agentTone, globalContext: globalContext.content }),
-      this.buildSkillsLayer(skillsContext.content),
+      this.buildSkillsLayer(input.skillContext),
       this.buildLeadDataLayer(input),
       this.buildMcpToolsLayer(),
       this.buildOutputLayer(httpToolEnabled)
@@ -230,7 +231,6 @@ Máximo 3 parágrafos`
   }
 
   private async loadSkillsContext(agentId: string, selectedSkillIds: string[] | undefined): Promise<{
-    content: string
     skills: PromptBuildResult['skills']
   }> {
     const allRows = await this.skillsLoader.loadRowsForAgent(agentId)
@@ -239,13 +239,6 @@ Máximo 3 parágrafos`
       ? allRows.filter((skill) => selectedSet.has(skill.id))
       : allRows
     return {
-      content: rows.map((skill) => [
-        `## Skill: ${skill.name}`,
-        skill.description ? `Descrição: ${skill.description}` : null,
-        skill.when_to_use ? `Quando usar: ${skill.when_to_use}` : null,
-        `Prioridade: ${skill.priority ?? 'medium'}`,
-        skill.content
-      ].filter((item): item is string => Boolean(item)).join('\n')).join('\n\n---\n\n'),
       skills: rows.map((skill) => ({
         name: skill.name,
         priority: skill.priority,

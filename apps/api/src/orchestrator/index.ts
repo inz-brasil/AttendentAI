@@ -216,11 +216,6 @@ export class QueryEngine {
         context_preview: truncateTraceText(vaultContext, 800)
       }
     })
-    const memorySummary = this.buildMemorySummary(
-      refreshedMemory.lead_summary,
-      liveSummary,
-      refreshedMemory.recent_messages
-    )
     const skillCandidates = await this.loadSkillCandidates('responder')
     const routedSkills = await this.routeSkills({
       phone: payload.phone,
@@ -246,6 +241,7 @@ export class QueryEngine {
         history_summary: liveSummary
       },
       vaultContext,
+      skillContext: routedSkills.contextSummary,
       selectedSkillIds: routedSkills.selectedSkillIds
     })
     const systemPrompt = promptBuild.prompt
@@ -288,8 +284,6 @@ export class QueryEngine {
       system_prompt: systemPrompt,
       message: payload.message,
       lead_name: refreshedLead?.name ?? payload.name,
-      memory_summary: memorySummary,
-      vault_context: vaultContext,
       classification,
       tools_enabled: await this.isHttpToolEnabled()
     })
@@ -411,7 +405,8 @@ export class QueryEngine {
       name: skill.name,
       description: skill.description,
       when_to_use: skill.when_to_use,
-      priority: skill.priority
+      priority: skill.priority,
+      content: skill.content
     }))
   }
 
@@ -422,9 +417,9 @@ export class QueryEngine {
     liveSummary: string
     classification: Awaited<ReturnType<ClassifierAgent['run']>>
     candidates: SkillCandidate[]
-  }): Promise<{ selectedSkillIds: string[]; reason: string; fallback: boolean }> {
+  }): Promise<{ selectedSkillIds: string[]; contextSummary: string; reason: string; fallback: boolean }> {
     if (input.candidates.length === 0) {
-      return { selectedSkillIds: [], reason: 'nenhuma_skill_associada', fallback: true }
+      return { selectedSkillIds: [], contextSummary: '', reason: 'nenhuma_skill_associada', fallback: true }
     }
 
     const output = await this.skillRouter.run({
@@ -438,8 +433,12 @@ export class QueryEngine {
     const selected = output.selected_skill_ids.filter((id) => validIds.has(id)).slice(0, 3)
     const fallback = selected.length === 0
     const selectedSkillIds = fallback ? this.fallbackSkillIds(input.classification.intent, input.candidates) : selected
+    const contextSummary = fallback
+      ? this.buildFallbackSkillContext(selectedSkillIds, input.candidates)
+      : output.context_summary
     const result = {
       selectedSkillIds,
+      contextSummary,
       reason: fallback ? `fallback: ${output.reason}` : output.reason,
       fallback
     }
@@ -452,6 +451,7 @@ export class QueryEngine {
       title: 'Skills selecionadas',
       data: {
         selected_skill_ids: result.selectedSkillIds,
+        context_summary_chars: result.contextSummary.length,
         selected_skills: input.candidates
           .filter((skill) => result.selectedSkillIds.includes(skill.id))
           .map((skill) => ({ id: skill.id, slug: skill.slug, name: skill.name })),
@@ -492,6 +492,19 @@ export class QueryEngine {
     })
 
     return [...new Set([...matches, ...(general ? [general.id] : [])])].slice(0, 3)
+  }
+
+  private buildFallbackSkillContext(selectedSkillIds: string[], candidates: SkillCandidate[]): string {
+    return candidates
+      .filter((skill) => selectedSkillIds.includes(skill.id))
+      .map((skill) => [
+        `Skill: ${skill.name}`,
+        skill.description ? `Objetivo: ${skill.description}` : null,
+        skill.when_to_use ? `Quando usar: ${skill.when_to_use}` : null,
+        skill.content ? `Contexto resumido: ${truncateTraceText(skill.content, 900)}` : null
+      ].filter((item): item is string => Boolean(item)).join('\n'))
+      .join('\n\n')
+      .slice(0, 1200)
   }
 
   private buildLiveConversationSummary(
@@ -654,22 +667,4 @@ export class QueryEngine {
     return lead
   }
 
-  private buildMemorySummary(
-    leadSummary: string,
-    historySummary: string,
-    recentMessages: Array<{ role: string | null; content: string | null }>
-  ): string {
-    const recent = recentMessages
-      .slice(-5)
-      .map((message) => `${message.role ?? 'unknown'}: ${message.content ?? ''}`)
-      .join('\n')
-
-    return [
-      leadSummary ? `Memória do lead:\n${leadSummary}` : null,
-      historySummary ? `Histórico do vault:\n${historySummary}` : null,
-      recent ? `Mensagens recentes:\n${recent}` : null
-    ]
-      .filter((item): item is string => Boolean(item))
-      .join('\n\n')
-  }
 }

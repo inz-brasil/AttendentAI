@@ -22,8 +22,6 @@ export interface ResponderInput extends AgentInput {
   system_prompt: string
   message: string
   lead_name: string
-  memory_summary: string
-  vault_context: string
   classification: ClassificationOutput
   tools_enabled: boolean
 }
@@ -60,8 +58,6 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
         content: [
           `Nome do lead: ${input.lead_name || 'não informado'}`,
           `Classificação: ${JSON.stringify(input.classification)}`,
-          `Memória/contexto complementar: ${input.memory_summary || 'sem memória relevante'}`,
-          `Contexto do vault complementar: ${input.vault_context || 'sem contexto relevante'}`,
           `Mensagem recebida: ${input.message}`
         ].join('\n')
       }

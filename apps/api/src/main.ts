@@ -4,6 +4,7 @@ import rateLimit from '@fastify/rate-limit'
 import websocket from '@fastify/websocket'
 import Fastify from 'fastify'
 import { ZodError } from 'zod'
+import { API_RATE_LIMIT_PER_MINUTE } from './config/constants'
 import { env } from './config/env'
 import { closeDb } from './db/client'
 import { registerAgentRoutes } from './routes/agents'
@@ -50,7 +51,7 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
 
   await app.register(cors, { origin: true })
   await app.register(rateLimit, {
-    max: 100,
+    max: API_RATE_LIMIT_PER_MINUTE,
     timeWindow: '1 minute',
     errorResponseBuilder: (_request, context) => ({
       error: 'Rate limit exceeded',
