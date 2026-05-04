@@ -333,6 +333,24 @@ export function SettingsClient({ initialSettings }: SettingsClientProps): JSX.El
         </Field>
       </Section>
 
+      {/* SEÇÃO: Tools */}
+      <Section title="Tools dos agentes" description="Capacidades externas liberadas para o atendimento">
+        <Field label="HTTP Request">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => set('tool_http_enabled', values.tool_http_enabled === 'true' ? 'false' : 'true')}
+              className={`relative h-5 w-9 rounded-full border transition ${values.tool_http_enabled === 'true' ? 'bg-success/20 border-success/40' : 'bg-canvas border-line'}`}
+            >
+              <span className={`absolute top-0.5 h-4 w-4 rounded-full transition-all ${values.tool_http_enabled === 'true' ? 'left-4 bg-success' : 'left-0.5 bg-muted/40'}`} />
+            </button>
+            <span className="text-sm text-ink">{values.tool_http_enabled === 'true' ? 'Ativada' : 'Desativada'}</span>
+          </div>
+          <span className="text-[11px] text-muted/60">
+            Quando ativada, o respondedor pode chamar webhooks HTTP com JSON. Deixe desativada até configurar os prompts/URLs.
+          </span>
+        </Field>
+      </Section>
+
       {/* SEÇÃO: Sistema */}
       <Section title="Sistema" description="Configurações de runtime e operação">
         <Field label="Timezone">

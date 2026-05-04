@@ -150,6 +150,11 @@ const defaultSettings = [
     key: 'internal_assistant_contacts',
     value: '',
     description: 'Telefones ou JIDs autorizados para o assistente interno, separados por vírgula ou linha'
+  },
+  {
+    key: 'tool_http_enabled',
+    value: 'false',
+    description: 'Habilita a tool http_request para o agente respondedor'
   }
 ]
 

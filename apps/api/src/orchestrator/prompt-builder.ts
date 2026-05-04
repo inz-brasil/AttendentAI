@@ -25,6 +25,18 @@ export interface PromptBuilderInput {
   vaultContext: string
 }
 
+export interface PromptBuildResult {
+  prompt: string
+  skills: Array<{
+    name: string
+    priority: string | null
+    order: number | null
+    when_to_use: string | null
+  }>
+  globalFiles: string[]
+  promptChars: number
+}
+
 const log = pino({ name: 'attendentai-prompt-builder' })
 
 const antiHallucinationRules = `REGRAS INVIOLÁVEIS:
@@ -44,12 +56,23 @@ export class PromptBuilder {
    * @returns System prompt final.
    */
   async build(input: PromptBuilderInput): Promise<string> {
-    const [agentName, companyName, agentTone, configuredPrompt, skillsContext, globalContext] = await Promise.all([
+    const result = await this.buildDetailed(input)
+    return result.prompt
+  }
+
+  /**
+   * Monta o system prompt e devolve metadados para debug do pipeline.
+   * @param input Contexto necessário para montar o prompt.
+   * @returns Prompt final e metadados de skills/vault.
+   */
+  async buildDetailed(input: PromptBuilderInput): Promise<PromptBuildResult> {
+    const [agentName, companyName, agentTone, httpToolEnabled, configuredPrompt, skillsContext, globalContext] = await Promise.all([
       this.getSetting('agent_name', 'AtendenteAI'),
       this.getSetting('company_name', 'AttendentAI'),
       this.getSetting('agent_tone', 'humanizado, claro, breve e consultivo'),
+      this.getSetting('tool_http_enabled', 'false'),
       this.getAgentSystemPrompt(input.responderId),
-      this.skillsLoader.loadForAgent(input.responderId),
+      this.loadSkillsContext(input.responderId),
       this.loadGlobalVaultContext()
     ])
 
@@ -72,7 +95,7 @@ Tom e estilo: ${agentTone}
 
 ${antiHallucinationRules}`,
       `CAMADA 2 — SKILLS ATIVAS
-${skillsContext || 'Nenhuma skill ativa vinculada ao respondedor.'}`,
+${skillsContext.content || 'Nenhuma skill ativa vinculada ao respondedor.'}`,
       `CAMADA 3 — CONTEXTO DINÂMICO DO LEAD
 Telefone: ${input.lead.phone}
 Data/hora atual (${input.lead.timezone}): ${input.lead.currentTime}
@@ -89,18 +112,23 @@ Contexto relevante do vault:
 ${input.vaultContext || 'sem contexto relevante'}
 
 Contexto global aprovado:
-${globalContext || 'sem contexto global cadastrado'}`,
+${globalContext.content || 'sem contexto global cadastrado'}`,
       `CAMADA 4 — INSTRUÇÃO DE SAÍDA
 Responda APENAS com o texto da mensagem final.
 Siga a formatação, ordem de atendimento e restrições definidas no prompt configurado do agente.
 Não use markdown, bullets ou headers quando o prompt configurado proibir; quando ele permitir, use apenas os formatos permitidos nele.
-Use a tool http_request quando houver webhook/API e dados confirmados para executar uma ação externa.
+${httpToolEnabled === 'true' ? 'Use a tool http_request quando houver webhook/API e dados confirmados para executar uma ação externa.' : 'Tools externas estão desativadas para este agente no momento.'}
 Se for curto e adequado para áudio, inclua [AUDIO_OK] ao final
 Máximo 3 parágrafos`
     ].join('\n\n---\n\n')
 
     log.info({ system_prompt: prompt }, 'system prompt built')
-    return prompt
+    return {
+      prompt,
+      skills: skillsContext.skills,
+      globalFiles: globalContext.files,
+      promptChars: prompt.length
+    }
   }
 
   private async getSetting(key: string, fallback: string): Promise<string> {
@@ -141,7 +169,29 @@ Máximo 3 parágrafos`
     return 'não informado'
   }
 
-  private async loadGlobalVaultContext(): Promise<string> {
+  private async loadSkillsContext(agentId: string): Promise<{
+    content: string
+    skills: PromptBuildResult['skills']
+  }> {
+    const rows = await this.skillsLoader.loadRowsForAgent(agentId)
+    return {
+      content: rows.map((skill) => [
+        `## Skill: ${skill.name}`,
+        skill.description ? `Descrição: ${skill.description}` : null,
+        skill.when_to_use ? `Quando usar: ${skill.when_to_use}` : null,
+        `Prioridade: ${skill.priority ?? 'medium'}`,
+        skill.content
+      ].filter((item): item is string => Boolean(item)).join('\n')).join('\n\n---\n\n'),
+      skills: rows.map((skill) => ({
+        name: skill.name,
+        priority: skill.priority,
+        order: skill.order,
+        when_to_use: skill.when_to_use
+      }))
+    }
+  }
+
+  private async loadGlobalVaultContext(): Promise<{ content: string; files: string[] }> {
     const files = await this.vault.listGlobalFiles()
     const contents = await Promise.all(
       files.map(async (file) => {
@@ -149,6 +199,9 @@ Máximo 3 parágrafos`
         return content.trim() ? `# ${file}\n${content.trim()}` : ''
       })
     )
-    return contents.filter(Boolean).join('\n\n')
+    return {
+      content: contents.filter(Boolean).join('\n\n'),
+      files
+    }
   }
 }

@@ -86,6 +86,23 @@ function SettingsIcon({ className }: NavIconProps): JSX.Element {
   )
 }
 
+function TracesIcon({ className }: NavIconProps): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M4 5.5h5.5" />
+      <path d="M4 12h8" />
+      <path d="M4 18.5h5.5" />
+      <path d="M15 5.5h5" />
+      <path d="M17.5 5.5v13" />
+      <path d="M15 18.5h5" />
+      <path d="M12 12h6" />
+      <circle cx="10.5" cy="5.5" r="1.4" />
+      <circle cx="13.5" cy="12" r="1.4" />
+      <circle cx="10.5" cy="18.5" r="1.4" />
+    </svg>
+  )
+}
+
 const navItems = [
   { href: '/', label: 'Home', icon: HomeIcon },
   { href: '/leads', label: 'Leads', icon: LeadsIcon },
@@ -93,6 +110,7 @@ const navItems = [
   { href: '/agents', label: 'Agentes', icon: AgentsIcon },
   { href: '/skills', label: 'Skills', icon: SkillsIcon },
   { href: '/vault', label: 'Vault', icon: VaultIcon },
+  { href: '/traces', label: 'Logs', icon: TracesIcon },
   { href: '/playground', label: 'Playground', icon: PlaygroundIcon },
   { href: '/settings', label: 'Settings', icon: SettingsIcon }
 ]

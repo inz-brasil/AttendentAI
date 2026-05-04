@@ -35,11 +35,18 @@ function formatSkill(skill: {
 
 export class SkillsLoader {
   /**
-   * Carrega skills ativas associadas a um agente.
+   * Carrega metadados e conteúdo de skills ativas associadas a um agente.
    * @param agentId ID do agente.
-   * @returns Conteúdo concatenado das skills ordenadas por prioridade.
+   * @returns Skills ordenadas por prioridade e ordem manual.
    */
-  async loadForAgent(agentId: string): Promise<string> {
+  async loadRowsForAgent(agentId: string): Promise<Array<{
+    name: string
+    description: string | null
+    when_to_use: string | null
+    priority: string | null
+    content: string | null
+    order: number | null
+  }>> {
     const rows = await db
       .select({
         name: skills.name,
@@ -54,8 +61,17 @@ export class SkillsLoader {
       .where(and(eq(agentSkills.agent_id, agentId), eq(skills.is_active, true)))
       .orderBy(sql`${agentSkills.order}`)
 
+    return rows.sort((a, b) => rankPriority(a.priority) - rankPriority(b.priority) || (a.order ?? 0) - (b.order ?? 0))
+  }
+
+  /**
+   * Carrega skills ativas associadas a um agente.
+   * @param agentId ID do agente.
+   * @returns Conteúdo concatenado das skills ordenadas por prioridade.
+   */
+  async loadForAgent(agentId: string): Promise<string> {
+    const rows = await this.loadRowsForAgent(agentId)
     return rows
-      .sort((a, b) => rankPriority(a.priority) - rankPriority(b.priority) || (a.order ?? 0) - (b.order ?? 0))
       .map(formatSkill)
       .join('\n\n---\n\n')
   }

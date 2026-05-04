@@ -24,6 +24,7 @@ export interface ResponderInput extends AgentInput {
   memory_summary: string
   vault_context: string
   classification: ClassificationOutput
+  tools_enabled: boolean
 }
 
 export interface ResponderOutput extends AgentRunMetadata {
@@ -72,7 +73,10 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
    * @returns Tools disponíveis.
    */
   protected override getTools(input: ResponderInput): ChatCompletionTool[] {
-    void input
+    if (!input.tools_enabled) {
+      return []
+    }
+
     return [httpRequestToolDefinition]
   }
 

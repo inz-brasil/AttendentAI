@@ -17,6 +17,7 @@ import {
   type LeadUpdateInput
 } from '../memory/persistent'
 import { markMessageProcessed } from '../monitoring/status'
+import { recordTrace, truncateTraceText } from '../monitoring/trace-recorder'
 import { acquirePhoneLock, releasePhoneLock, waitForPhoneLockRelease } from '../queue/redis'
 import { broadcast } from '../websocket/server'
 import { PromptBuilder } from './prompt-builder'
@@ -99,6 +100,19 @@ export class QueryEngine {
 
   private async processUnlocked(payload: WebhookPayload): Promise<WebhookResponse> {
     const startedAt = Date.now()
+    await recordTrace({
+      phone: payload.phone,
+      agent: 'orchestrator',
+      eventType: 'pipeline_start',
+      title: 'Webhook recebido',
+      data: {
+        message_type: payload.message_type,
+        message_preview: truncateTraceText(payload.message, 300),
+        name: payload.name,
+        session_id: payload.session_id,
+        remoteJid: this.getStringContactField(payload.contact_info, 'remoteJid')
+      }
+    })
     const runtimeContext = this.resolveRuntimeContext(payload)
     if (await this.isInternalAssistantContact(payload)) {
       return this.processInternalAssistant(payload, runtimeContext, startedAt)
@@ -106,11 +120,30 @@ export class QueryEngine {
 
     const lead = await getOrCreateLead(payload.phone, payload.name, payload.contact_info)
     const memory = await loadMemory(payload.phone)
+    await recordTrace({
+      phone: payload.phone,
+      agent: 'memory',
+      eventType: 'memory_loaded',
+      title: 'Memória carregada',
+      data: {
+        lead_found: Boolean(lead),
+        lead_name: lead?.name ?? null,
+        recent_messages: memory.recent_messages.length,
+        history_chars: memory.history_summary.length
+      }
+    })
 
     const classification = await this.classifier.run({
       phone: payload.phone,
       message: payload.message,
       history_summary: memory.history_summary
+    })
+    await recordTrace({
+      phone: payload.phone,
+      agent: 'classifier',
+      eventType: 'agent_output',
+      title: 'Classificação concluída',
+      data: classification
     })
 
     const identification = await this.identifier.run({
@@ -124,11 +157,25 @@ export class QueryEngine {
         tags: lead?.tags ?? null
       }
     })
+    await recordTrace({
+      phone: payload.phone,
+      agent: 'identifier',
+      eventType: 'agent_output',
+      title: 'Identificação concluída',
+      data: identification
+    })
 
     const leadUpdates = this.normalizeLeadUpdates(identification.fields_to_update)
     const hasLeadUpdates = Object.keys(leadUpdates).length > 0
     if (hasLeadUpdates) {
       await updateLead(payload.phone, leadUpdates)
+      await recordTrace({
+        phone: payload.phone,
+        agent: 'identifier',
+        eventType: 'lead_updated',
+        title: 'Lead atualizado',
+        data: { ...leadUpdates }
+      })
     }
 
     const refreshedLead = await this.loadLeadForResponse(payload.phone)
@@ -144,12 +191,23 @@ export class QueryEngine {
     }
     const refreshedMemory = await loadMemory(payload.phone)
     const vaultContext = await this.memoryAgent.fetchRelevant(payload.phone, classification.intent)
+    await recordTrace({
+      phone: payload.phone,
+      agent: 'memory-agent',
+      eventType: 'vault_context',
+      title: 'Contexto do vault carregado',
+      data: {
+        intent: classification.intent,
+        context_chars: vaultContext.length,
+        context_preview: truncateTraceText(vaultContext, 800)
+      }
+    })
     const memorySummary = this.buildMemorySummary(
       refreshedMemory.lead_summary,
       refreshedMemory.history_summary,
       refreshedMemory.recent_messages
     )
-    const systemPrompt = await this.promptBuilder.build({
+    const promptBuild = await this.promptBuilder.buildDetailed({
       responderId: 'responder',
       lead: {
         phone: payload.phone,
@@ -163,10 +221,33 @@ export class QueryEngine {
       memory: refreshedMemory,
       vaultContext
     })
+    const systemPrompt = promptBuild.prompt
+    await recordTrace({
+      phone: payload.phone,
+      agent: 'prompt-builder',
+      eventType: 'prompt_built',
+      title: 'Prompt montado',
+      data: {
+        prompt_chars: promptBuild.promptChars,
+        skills: promptBuild.skills,
+        global_vault_files: promptBuild.globalFiles,
+        tools_enabled: await this.isHttpToolEnabled()
+      }
+    })
 
     await saveMessage(payload.phone, 'user', payload.message, {
       message_type: payload.message_type,
       intent: classification.intent
+    })
+    await recordTrace({
+      phone: payload.phone,
+      agent: 'memory',
+      eventType: 'message_saved',
+      title: 'Mensagem do usuário salva',
+      data: {
+        role: 'user',
+        intent: classification.intent
+      }
     })
 
     const response = await this.responder.run({
@@ -176,7 +257,22 @@ export class QueryEngine {
       lead_name: refreshedLead?.name ?? payload.name,
       memory_summary: memorySummary,
       vault_context: vaultContext,
-      classification
+      classification,
+      tools_enabled: await this.isHttpToolEnabled()
+    })
+    await recordTrace({
+      phone: payload.phone,
+      agent: 'responder',
+      eventType: 'agent_output',
+      title: 'Resposta gerada',
+      data: {
+        response_preview: truncateTraceText(response.text, 800),
+        audio_requested: response.audio_requested,
+        tokens_used: response.tokens_used,
+        duration_ms: response.duration_ms,
+        model: response.model,
+        tools_used: response.tool_trace.map((trace) => trace.tool)
+      }
     })
 
     await saveMessage(payload.phone, 'assistant', response.text, {
@@ -186,6 +282,16 @@ export class QueryEngine {
       tokens_used: response.tokens_used,
       agent_used: 'responder',
       processing_ms: response.duration_ms
+    })
+    await recordTrace({
+      phone: payload.phone,
+      agent: 'memory',
+      eventType: 'message_saved',
+      title: 'Resposta salva',
+      data: {
+        role: 'assistant',
+        tokens_used: response.tokens_used
+      }
     })
 
     broadcast({
@@ -199,6 +305,17 @@ export class QueryEngine {
       timestamp: new Date().toISOString()
     })
     markMessageProcessed()
+    await recordTrace({
+      phone: payload.phone,
+      agent: 'orchestrator',
+      eventType: 'pipeline_end',
+      title: 'Webhook processado',
+      data: {
+        processing_ms: Date.now() - startedAt,
+        tokens_used: response.tokens_used,
+        agent_used: 'responder'
+      }
+    })
 
     void this.memoryAgent
       .saveNote(
@@ -297,6 +414,10 @@ export class QueryEngine {
   private async getSettingValue(key: string): Promise<string> {
     const [setting] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
     return setting?.value ?? ''
+  }
+
+  private async isHttpToolEnabled(): Promise<boolean> {
+    return (await this.getSettingValue('tool_http_enabled')).trim().toLowerCase() === 'true'
   }
 
   private parseContactList(raw: string): string[] {

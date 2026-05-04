@@ -5,6 +5,7 @@ import { env } from '../config/env'
 import { enforcePhoneRateLimit } from '../rate-limit'
 import { enqueueMessage } from '../queue/message-queue'
 import { PhoneLockedError, QueryEngine } from '../orchestrator'
+import { recordTrace } from '../monitoring/trace-recorder'
 
 const webhookPayloadSchema = z.object({
   phone: z.string().min(1),
@@ -82,6 +83,17 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
       if (error instanceof PhoneLockedError) {
         return reply.code(429).send({ error: 'Mensagem anterior ainda processando', code: 'PHONE_LOCKED' })
       }
+
+      await recordTrace({
+        phone: payload.phone,
+        agent: 'orchestrator',
+        eventType: 'pipeline_error',
+        title: 'Erro no processamento do webhook',
+        data: {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          name: error instanceof Error ? error.name : 'UnknownError'
+        }
+      })
 
       throw error
     }

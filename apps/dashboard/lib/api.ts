@@ -66,6 +66,16 @@ export interface Setting {
   description: string | null
 }
 
+export interface AgentTrace {
+  id: string
+  phone: string | null
+  agent: string | null
+  event_type: string | null
+  title: string | null
+  data: Record<string, unknown> | null
+  created_at: string | null
+}
+
 export class ApiClientError extends Error {
   readonly status: number
   readonly code: string
@@ -111,6 +121,8 @@ export const api = {
   skills: () => request<Skill[]>('/api/skills'),
   skill: (id: string) => request<Skill>(`/api/skills/${encodeURIComponent(id)}`),
   settings: () => request<Setting[]>('/api/settings'),
+  traces: () => request<{ traces: AgentTrace[] }>('/api/traces'),
+  tracesByPhone: (phone: string) => request<{ traces: AgentTrace[] }>(`/api/traces/${encodeURIComponent(phone)}`),
   vault: () => request<{ leads: Array<{ phone: string; folder: string; path: string; name: string }> }>('/api/vault'),
   vaultFiles: (phone: string) => request<{ files: string[] }>(`/api/vault/${encodeURIComponent(phone)}/files`),
   vaultFile: (phone: string, filename: string) =>
