@@ -19,6 +19,7 @@ import { registerSkillRoutes } from './routes/skills'
 import { registerTraceRoutes } from './routes/traces'
 import { registerVaultRoutes } from './routes/vault'
 import { registerWebhookRoutes } from './routes/webhook'
+import { registerGoogleCalendarMcpServer } from './mcp-servers/google-calendar'
 import { registerMockMcpServer } from './mcp-servers/mock'
 import { registerWebSocketServer } from './websocket/server'
 
@@ -124,6 +125,7 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
   await registerPlaygroundRoutes(app)
   await registerMcpRoutes(app)
   await registerMockMcpServer(app)
+  await registerGoogleCalendarMcpServer(app)
 
   return app
 }
