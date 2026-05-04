@@ -7,6 +7,7 @@ const log = pino({ name: 'attendentai-traces' })
 
 export interface TraceEventInput {
   phone: string | null
+  runId?: string
   agent: string
   eventType: string
   title: string
@@ -22,6 +23,7 @@ export async function recordTrace(input: TraceEventInput): Promise<void> {
   try {
     await db.insert(agentTraces).values({
       phone: input.phone,
+      run_id: input.runId,
       agent: input.agent,
       event_type: input.eventType,
       title: input.title,

@@ -69,11 +69,33 @@ export interface Setting {
 export interface AgentTrace {
   id: string
   phone: string | null
+  run_id: string | null
   agent: string | null
   event_type: string | null
   title: string | null
   data: Record<string, unknown> | null
   created_at: string | null
+}
+
+export interface TraceContact {
+  phone: string
+  lead_name: string | null
+  last_message: string | null
+  last_response: string | null
+  last_at: string | null
+  run_count: number
+  event_count: number
+}
+
+export interface TraceRun {
+  run_id: string
+  phone: string
+  started_at: string | null
+  ended_at: string | null
+  message_preview: string | null
+  response_preview: string | null
+  status: 'success' | 'error'
+  events: AgentTrace[]
 }
 
 export class ApiClientError extends Error {
@@ -122,6 +144,8 @@ export const api = {
   skill: (id: string) => request<Skill>(`/api/skills/${encodeURIComponent(id)}`),
   settings: () => request<Setting[]>('/api/settings'),
   traces: () => request<{ traces: AgentTrace[] }>('/api/traces'),
+  traceContacts: () => request<{ contacts: TraceContact[] }>('/api/traces/contacts'),
+  traceRuns: (phone: string) => request<{ runs: TraceRun[] }>(`/api/traces/${encodeURIComponent(phone)}/runs`),
   tracesByPhone: (phone: string) => request<{ traces: AgentTrace[] }>(`/api/traces/${encodeURIComponent(phone)}`),
   vault: () => request<{ leads: Array<{ phone: string; folder: string; path: string; name: string }> }>('/api/vault'),
   vaultFiles: (phone: string) => request<{ files: string[] }>(`/api/vault/${encodeURIComponent(phone)}/files`),

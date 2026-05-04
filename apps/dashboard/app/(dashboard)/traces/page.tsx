@@ -7,14 +7,14 @@ import { TracesClient } from './traces-client'
  * @returns Timeline com eventos recentes de agentes e tools.
  */
 export default async function TracesPage(): Promise<JSX.Element> {
-  let traces: Awaited<ReturnType<typeof api.traces>>['traces'] = []
+  let contacts: Awaited<ReturnType<typeof api.traceContacts>>['contacts'] = []
 
   try {
-    const response = await api.traces()
-    traces = response.traces ?? []
+    const response = await api.traceContacts()
+    contacts = response.contacts ?? []
   } catch {
-    traces = []
+    contacts = []
   }
 
-  return <TracesClient initialTraces={traces} />
+  return <TracesClient initialContacts={contacts} />
 }

@@ -127,6 +127,7 @@ export const agentTraces = sqliteTable('agent_traces', {
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
   phone: text('phone'),
+  run_id: text('run_id'),
   agent: text('agent'),
   event_type: text('event_type'),
   title: text('title'),

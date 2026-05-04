@@ -100,8 +100,10 @@ export class QueryEngine {
 
   private async processUnlocked(payload: WebhookPayload): Promise<WebhookResponse> {
     const startedAt = Date.now()
+    const runId = crypto.randomUUID()
     await recordTrace({
       phone: payload.phone,
+      runId,
       agent: 'orchestrator',
       eventType: 'pipeline_start',
       title: 'Webhook recebido',
@@ -122,6 +124,7 @@ export class QueryEngine {
     const memory = await loadMemory(payload.phone)
     await recordTrace({
       phone: payload.phone,
+      runId,
       agent: 'memory',
       eventType: 'memory_loaded',
       title: 'Memória carregada',
@@ -140,6 +143,7 @@ export class QueryEngine {
     })
     await recordTrace({
       phone: payload.phone,
+      runId,
       agent: 'classifier',
       eventType: 'agent_output',
       title: 'Classificação concluída',
@@ -159,6 +163,7 @@ export class QueryEngine {
     })
     await recordTrace({
       phone: payload.phone,
+      runId,
       agent: 'identifier',
       eventType: 'agent_output',
       title: 'Identificação concluída',
@@ -171,6 +176,7 @@ export class QueryEngine {
       await updateLead(payload.phone, leadUpdates)
       await recordTrace({
         phone: payload.phone,
+        runId,
         agent: 'identifier',
         eventType: 'lead_updated',
         title: 'Lead atualizado',
@@ -193,6 +199,7 @@ export class QueryEngine {
     const vaultContext = await this.memoryAgent.fetchRelevant(payload.phone, classification.intent)
     await recordTrace({
       phone: payload.phone,
+      runId,
       agent: 'memory-agent',
       eventType: 'vault_context',
       title: 'Contexto do vault carregado',
@@ -224,11 +231,13 @@ export class QueryEngine {
     const systemPrompt = promptBuild.prompt
     await recordTrace({
       phone: payload.phone,
+      runId,
       agent: 'prompt-builder',
       eventType: 'prompt_built',
       title: 'Prompt montado',
       data: {
         prompt_chars: promptBuild.promptChars,
+        system_prompt_final: promptBuild.prompt,
         skills: promptBuild.skills,
         global_vault_files: promptBuild.globalFiles,
         tools_enabled: await this.isHttpToolEnabled()
@@ -241,6 +250,7 @@ export class QueryEngine {
     })
     await recordTrace({
       phone: payload.phone,
+      runId,
       agent: 'memory',
       eventType: 'message_saved',
       title: 'Mensagem do usuário salva',
@@ -252,6 +262,7 @@ export class QueryEngine {
 
     const response = await this.responder.run({
       phone: payload.phone,
+      run_id: runId,
       system_prompt: systemPrompt,
       message: payload.message,
       lead_name: refreshedLead?.name ?? payload.name,
@@ -260,13 +271,29 @@ export class QueryEngine {
       classification,
       tools_enabled: await this.isHttpToolEnabled()
     })
+    const guardedText = this.normalizeWhatsAppResponse(response.text)
+    if (guardedText !== response.text) {
+      await recordTrace({
+        phone: payload.phone,
+        runId,
+        agent: 'response-guard',
+        eventType: 'response_guard',
+        title: 'Resposta ajustada por regra determinística',
+        data: {
+          original_preview: truncateTraceText(response.text, 800),
+          final_preview: truncateTraceText(guardedText, 800),
+          rules: ['replace_em_dash']
+        }
+      })
+    }
     await recordTrace({
       phone: payload.phone,
+      runId,
       agent: 'responder',
       eventType: 'agent_output',
       title: 'Resposta gerada',
       data: {
-        response_preview: truncateTraceText(response.text, 800),
+        response_preview: truncateTraceText(guardedText, 800),
         audio_requested: response.audio_requested,
         tokens_used: response.tokens_used,
         duration_ms: response.duration_ms,
@@ -275,7 +302,7 @@ export class QueryEngine {
       }
     })
 
-    await saveMessage(payload.phone, 'assistant', response.text, {
+    await saveMessage(payload.phone, 'assistant', guardedText, {
       message_type: 'text',
       audio_requested: response.audio_requested,
       intent: classification.intent,
@@ -285,6 +312,7 @@ export class QueryEngine {
     })
     await recordTrace({
       phone: payload.phone,
+      runId,
       agent: 'memory',
       eventType: 'message_saved',
       title: 'Resposta salva',
@@ -299,7 +327,7 @@ export class QueryEngine {
       phone: payload.phone,
       name: refreshedLead?.name ?? payload.name,
       message: payload.message,
-      response: response.text,
+      response: guardedText,
       agent: 'responder',
       intent: classification.intent,
       timestamp: new Date().toISOString()
@@ -307,6 +335,7 @@ export class QueryEngine {
     markMessageProcessed()
     await recordTrace({
       phone: payload.phone,
+      runId,
       agent: 'orchestrator',
       eventType: 'pipeline_end',
       title: 'Webhook processado',
@@ -324,7 +353,7 @@ export class QueryEngine {
           `Lead: ${refreshedLead?.name ?? payload.name} (${payload.phone})`,
           `Intenção: ${classification.intent}`,
           `Usuário: ${payload.message}`,
-          `Assistente: ${response.text}`
+          `Assistente: ${guardedText}`
         ].join('\n')
       )
       .catch((error: unknown) => {
@@ -333,7 +362,7 @@ export class QueryEngine {
 
     return {
       success: true,
-      message: response.text,
+      message: guardedText,
       audio_requested: response.audio_requested,
       metadata: {
         lead_id: payload.phone,
@@ -346,6 +375,10 @@ export class QueryEngine {
 
   private normalizeLeadUpdates(fields: LeadFieldsToUpdate): LeadUpdateInput {
     return fields
+  }
+
+  private normalizeWhatsAppResponse(text: string): string {
+    return text.replace(/—/g, '-')
   }
 
   private async processInternalAssistant(

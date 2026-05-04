@@ -216,9 +216,11 @@ export abstract class BaseAgent<TInput extends AgentInput, TOutput> {
     }
 
     const phone = typeof input.phone === 'string' ? input.phone : null
+    const runId = typeof input.run_id === 'string' ? input.run_id : null
     await db.insert(agentTraces).values(
       trace.map((item) => ({
         phone,
+        run_id: runId,
         agent: this.name,
         event_type: 'tool_call',
         title: item.tool,

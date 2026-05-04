@@ -18,6 +18,7 @@ com JSON objetivo antes de responder ao lead.`
 
 export interface ResponderInput extends AgentInput {
   phone: string
+  run_id: string
   system_prompt: string
   message: string
   lead_name: string
