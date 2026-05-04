@@ -2,8 +2,9 @@
 import { desc, eq } from 'drizzle-orm'
 import pino from 'pino'
 import { env } from '../config/env'
+import { MEMORY_CONFIG } from '../config/memory'
 import { db } from '../db/client'
-import { conversations, leads, messages, type LeadStatus, type MessageRole, type MessageType } from '../db/schema'
+import { conversations, leadMemoryMeta, leads, messages, type LeadStatus, type MessageRole, type MessageType } from '../db/schema'
 import { VaultManager } from '../vault-manager/manager'
 import { Summarizer } from './summarizer'
 
@@ -21,6 +22,7 @@ export interface MemorySnapshot {
     created_at: Date | null
   }>
   history_summary: string
+  notes_summary: string
 }
 
 export interface MessageMetadata {
@@ -44,6 +46,36 @@ const vault = new VaultManager(env.VAULT_PATH)
 const summarizer = new Summarizer(vault)
 const summarizingPhones = new Set<string>()
 const log = pino({ name: 'attendentai-memory' })
+
+function maxMemoryChars(): number {
+  return MEMORY_CONFIG.MAX_MEMORY_TOKENS * 4
+}
+
+function truncateText(value: string, maxChars: number): string {
+  const trimmed = value.trim()
+  if (trimmed.length <= maxChars) {
+    return trimmed
+  }
+
+  return trimmed.slice(0, Math.max(0, maxChars - 25)).trimEnd() + '\n[conteúdo truncado]'
+}
+
+function splitVaultMemoryBudget(historyFile: string, notesFile: string): { history: string; notes: string } {
+  const totalChars = maxMemoryChars()
+  const historyBudget = Math.min(historyFile.trim().length, Math.floor(totalChars * 0.7))
+  const notesBudget = Math.max(0, totalChars - historyBudget)
+  return {
+    history: truncateText(historyFile, historyBudget),
+    notes: truncateText(notesFile, notesBudget)
+  }
+}
+
+async function ensureLeadMemoryMeta(phone: string): Promise<void> {
+  const [meta] = await db.select({ phone: leadMemoryMeta.phone }).from(leadMemoryMeta).where(eq(leadMemoryMeta.phone, phone)).limit(1)
+  if (!meta) {
+    await db.insert(leadMemoryMeta).values({ phone })
+  }
+}
 
 /**
  * Busca ou cria um lead e sua pasta no vault.
@@ -92,7 +124,11 @@ export async function loadMemory(phone: string): Promise<MemorySnapshot> {
     .limit(10)
 
   const memoryFile = await vault.read(phone, 'memoria.md')
-  const historyFile = await vault.read(phone, 'historico.md')
+  const [historyFile, notesFile] = await Promise.all([
+    vault.read(phone, 'historico.md'),
+    vault.read(phone, 'notas.md')
+  ])
+  const vaultMemory = splitVaultMemoryBudget(historyFile, notesFile)
   const leadSummary = [
     lead?.name ? `Nome: ${lead.name}` : null,
     lead?.city ? `Cidade: ${lead.city}` : null,
@@ -102,11 +138,12 @@ export async function loadMemory(phone: string): Promise<MemorySnapshot> {
     .join('\n')
 
   return {
-    lead_summary: [leadSummary, historyFile.trim() ? `Histórico sumarizado:\n${historyFile.trim()}` : null]
+    lead_summary: [leadSummary, vaultMemory.history ? `Histórico sumarizado:\n${vaultMemory.history}` : null]
       .filter((item): item is string => Boolean(item))
       .join('\n\n'),
     recent_messages: recentMessages.reverse(),
-    history_summary: historyFile
+    history_summary: vaultMemory.history,
+    notes_summary: vaultMemory.notes
   }
 }
 
@@ -160,6 +197,8 @@ export async function saveMessage(
   content: string,
   metadata: MessageMetadata = {}
 ): Promise<void> {
+  await ensureLeadMemoryMeta(phone)
+
   const [conversation] = await db
     .select()
     .from(conversations)

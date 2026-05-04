@@ -1,10 +1,10 @@
 // leads.ts — Expõe endpoints CRUD básicos para leads
-import { eq } from 'drizzle-orm'
+import { count, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { env } from '../config/env'
 import { db } from '../db/client'
-import { conversations, leads, messages } from '../db/schema'
+import { conversations, leadMemoryMeta, leads, messages } from '../db/schema'
 import { VaultManager } from '../vault-manager/manager'
 
 const leadParamsSchema = z.object({ phone: z.string().min(1) })
@@ -28,6 +28,23 @@ export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
   const vault = new VaultManager(env.VAULT_PATH)
 
   app.get('/api/leads', async () => db.select().from(leads))
+
+  app.get('/api/leads/:phone/memory-stats', async (request) => {
+    const { phone } = leadParamsSchema.parse(request.params)
+    const [messageCount] = await db
+      .select({ total_messages: count() })
+      .from(messages)
+      .where(eq(messages.lead_phone, phone))
+    const [meta] = await db.select().from(leadMemoryMeta).where(eq(leadMemoryMeta.phone, phone)).limit(1)
+    const vaultFiles = await vault.listFiles(phone)
+
+    return {
+      total_messages: messageCount?.total_messages ?? 0,
+      last_compaction_at: meta?.last_compaction_at ?? null,
+      total_compactions: meta?.total_compactions ?? 0,
+      vault_files: vaultFiles
+    }
+  })
 
   app.get('/api/leads/:phone', async (request, reply) => {
     const params = leadParamsSchema.parse(request.params)

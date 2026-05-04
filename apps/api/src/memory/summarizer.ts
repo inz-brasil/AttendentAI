@@ -5,7 +5,7 @@ import pino from 'pino'
 import { env } from '../config/env'
 import { MEMORY_CONFIG } from '../config/memory'
 import { db } from '../db/client'
-import { messages, tokenUsage } from '../db/schema'
+import { leadMemoryMeta, messages, tokenUsage } from '../db/schema'
 import { VaultManager } from '../vault-manager/manager'
 
 const summarizerPrompt =
@@ -22,6 +22,26 @@ function today(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+async function loadMemoryMeta(phone: string) {
+  const [meta] = await db.select().from(leadMemoryMeta).where(eq(leadMemoryMeta.phone, phone)).limit(1)
+  return meta
+}
+
+async function ensureMemoryMeta(phone: string): Promise<void> {
+  const meta = await loadMemoryMeta(phone)
+  if (!meta) {
+    await db.insert(leadMemoryMeta).values({ phone })
+  }
+}
+
+function canCompact(lastCompactionAt: Date | null, now: Date): boolean {
+  if (!lastCompactionAt) {
+    return true
+  }
+
+  return now.getTime() - lastCompactionAt.getTime() >= MEMORY_CONFIG.MIN_COMPACTION_INTERVAL_MS
+}
+
 export class Summarizer {
   private readonly vault: VaultManager
 
@@ -35,6 +55,13 @@ export class Summarizer {
    * @returns True se deve sumarizar.
    */
   async shouldSummarize(phone: string): Promise<boolean> {
+    await ensureMemoryMeta(phone)
+    const meta = await loadMemoryMeta(phone)
+    if (!canCompact(meta?.last_compaction_at ?? null, new Date())) {
+      log.info({ phone }, 'memory compaction skipped by interval')
+      return false
+    }
+
     const rows = await db.select({ id: messages.id }).from(messages).where(eq(messages.lead_phone, phone))
     return rows.length >= MEMORY_CONFIG.COMPACTION_THRESHOLD
   }
@@ -45,6 +72,14 @@ export class Summarizer {
    * @returns Nada.
    */
   async summarize(phone: string): Promise<void> {
+    await ensureMemoryMeta(phone)
+    const now = new Date()
+    const meta = await loadMemoryMeta(phone)
+    if (!canCompact(meta?.last_compaction_at ?? null, now)) {
+      log.info({ phone }, 'memory compaction skipped by interval')
+      return
+    }
+
     const latestMessages = await db
       .select({ id: messages.id })
       .from(messages)
@@ -101,6 +136,15 @@ export class Summarizer {
     }
 
     await db.delete(messages).where(inArray(messages.id, oldMessages.map((message) => message.id)))
+    await db
+      .update(leadMemoryMeta)
+      .set({
+        last_compaction_at: now,
+        total_compactions: (meta?.total_compactions ?? 0) + 1,
+        total_messages_summarized: (meta?.total_messages_summarized ?? 0) + oldMessages.length
+      })
+      .where(eq(leadMemoryMeta.phone, phone))
+
     log.info({ phone, summarized_messages: oldMessages.length, tokens_used: tokensUsed, duration_ms: durationMs })
   }
 }
