@@ -12,12 +12,14 @@ import { registerAgentSkillRoutes } from './routes/agent-skills'
 import { registerConversationRoutes } from './routes/conversations'
 import { registerHealthRoutes } from './routes/health'
 import { registerLeadRoutes } from './routes/leads'
+import { registerMcpRoutes } from './routes/mcp'
 import { registerPlaygroundRoutes } from './routes/playground'
 import { registerSettingRoutes } from './routes/settings'
 import { registerSkillRoutes } from './routes/skills'
 import { registerTraceRoutes } from './routes/traces'
 import { registerVaultRoutes } from './routes/vault'
 import { registerWebhookRoutes } from './routes/webhook'
+import { registerMockMcpServer } from './mcp-servers/mock'
 import { registerWebSocketServer } from './websocket/server'
 
 const requestStartTimes = new WeakMap<object, number>()
@@ -120,6 +122,8 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
   await registerVaultRoutes(app)
   await registerTraceRoutes(app)
   await registerPlaygroundRoutes(app)
+  await registerMcpRoutes(app)
+  await registerMockMcpServer(app)
 
   return app
 }

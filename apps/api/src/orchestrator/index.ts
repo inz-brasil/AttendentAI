@@ -2,6 +2,7 @@
 import { eq } from 'drizzle-orm'
 import pino from 'pino'
 import { ClassifierAgent } from '../agents/classifier'
+import { MCP_ENABLED } from '../config/constants'
 import { IdentifierAgent, type LeadFieldsToUpdate } from '../agents/identifier'
 import { InternalAssistantAgent } from '../agents/internal-assistant'
 import { MemoryAgent } from '../agents/memory-agent'
@@ -20,6 +21,7 @@ import {
 } from '../memory/persistent'
 import { markMessageProcessed } from '../monitoring/status'
 import { recordTrace, truncateTraceText } from '../monitoring/trace-recorder'
+import { MCPRegistry } from '../mcp/registry'
 import { acquirePhoneLock, releasePhoneLock, waitForPhoneLockRelease } from '../queue/redis'
 import { SkillsLoader } from '../skills/loader'
 import { broadcast } from '../websocket/server'
@@ -71,6 +73,7 @@ export class QueryEngine {
   private readonly responder = new ResponderAgent()
   private readonly skillRouter = new SkillRouterAgent()
   private readonly skillsLoader = new SkillsLoader()
+  private readonly mcpRegistry = new MCPRegistry()
 
   /**
    * Processa um payload de webhook e retorna a resposta final.
@@ -278,6 +281,10 @@ export class QueryEngine {
       }
     })
 
+    const mcpTools = MCP_ENABLED
+      ? this.mcpRegistry.formatForOpenAI(await this.mcpRegistry.getToolsForAgent('responder'))
+      : []
+
     const response = await this.responder.run({
       phone: payload.phone,
       run_id: runId,
@@ -285,7 +292,8 @@ export class QueryEngine {
       message: payload.message,
       lead_name: refreshedLead?.name ?? payload.name,
       classification,
-      tools_enabled: await this.isHttpToolEnabled()
+      tools_enabled: await this.isHttpToolEnabled(),
+      mcp_tools: mcpTools
     })
     const guardedText = this.normalizeWhatsAppResponse(response.text)
     if (guardedText !== response.text) {
@@ -398,7 +406,7 @@ export class QueryEngine {
   }
 
   private async loadSkillCandidates(agentId: string): Promise<SkillCandidate[]> {
-    const rows = await this.skillsLoader.loadRowsForAgent(agentId)
+    const rows = await this.skillsLoader.loadSummariesForAgent(agentId)
     return rows.map((skill) => ({
       id: skill.id,
       slug: skill.slug,
@@ -406,7 +414,7 @@ export class QueryEngine {
       description: skill.description,
       when_to_use: skill.when_to_use,
       priority: skill.priority,
-      content: skill.content
+      content_summary: skill.content_summary
     }))
   }
 
@@ -501,7 +509,7 @@ export class QueryEngine {
         `Skill: ${skill.name}`,
         skill.description ? `Objetivo: ${skill.description}` : null,
         skill.when_to_use ? `Quando usar: ${skill.when_to_use}` : null,
-        skill.content ? `Contexto resumido: ${truncateTraceText(skill.content, 900)}` : null
+        skill.content_summary ? `Contexto resumido: ${skill.content_summary}` : null
       ].filter((item): item is string => Boolean(item)).join('\n'))
       .join('\n\n')
       .slice(0, 1200)

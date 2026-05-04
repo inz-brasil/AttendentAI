@@ -6,6 +6,7 @@ import type {
   ChatCompletionTool
 } from 'openai/resources/chat/completions'
 import pino from 'pino'
+import { MAX_TOOL_ITERATIONS } from '../config/constants'
 import { env } from '../config/env'
 import { db } from '../db/client'
 import { agentTraces, tokenUsage } from '../db/schema'
@@ -81,7 +82,7 @@ export abstract class BaseAgent<TInput extends AgentInput, TOutput> {
       let completionTokens = 0
 
       try {
-        for (let toolRound = 0; toolRound < 4; toolRound += 1) {
+        for (let toolRound = 0; toolRound <= MAX_TOOL_ITERATIONS; toolRound += 1) {
           const response = await openai.chat.completions.create({
             model: this.model,
             messages,
@@ -96,6 +97,11 @@ export abstract class BaseAgent<TInput extends AgentInput, TOutput> {
 
           const message = response.choices[0]?.message
           if (message?.tool_calls && message.tool_calls.length > 0) {
+            log.info({
+              agent: this.name,
+              phone: typeof input.phone === 'string' ? input.phone : undefined,
+              tool_calls: message.tool_calls.map((toolCall) => toolCall.function.name)
+            }, 'tool_calls detected')
             messages.push({
               role: 'assistant',
               content: message.content ?? null,
@@ -103,6 +109,11 @@ export abstract class BaseAgent<TInput extends AgentInput, TOutput> {
             })
 
             for (const toolCall of message.tool_calls) {
+              log.info({
+                agent: this.name,
+                phone: typeof input.phone === 'string' ? input.phone : undefined,
+                tool: toolCall.function.name
+              }, 'executing tool')
               const trace = await this.executeToolCall(toolCall, input)
               toolTrace.push(trace)
               messages.push({

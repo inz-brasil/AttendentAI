@@ -12,7 +12,7 @@ export interface SkillCandidate {
   description: string | null
   when_to_use: string | null
   priority: string | null
-  content: string | null
+  content_summary: string
 }
 
 export interface SkillRouterInput extends AgentInput {
@@ -80,7 +80,7 @@ export class SkillRouterAgent extends BaseAgent<SkillRouterInput, SkillRouterOut
           `Classificação: ${JSON.stringify(input.classification)}`,
           `Resumo da conversa:\n${input.history_summary || 'sem resumo'}`,
           `Última mensagem recebida:\n${input.message}`,
-          `Skills candidatas com conteúdo para leitura e síntese:\n${JSON.stringify(input.candidates)}`
+          `Skills candidatas com resumo cacheado:\n${JSON.stringify(input.candidates)}`
         ].join('\n\n')
       }
     ]

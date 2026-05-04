@@ -4,7 +4,10 @@ import type {
   ChatCompletionMessageToolCall,
   ChatCompletionTool
 } from 'openai/resources/chat/completions'
+import { MCP_ENABLED } from '../config/constants'
 import { env } from '../config/env'
+import { MCPRegistry } from '../mcp/registry'
+import { ToolExecutor } from '../mcp/tool-executor'
 import { executeRegisteredTool, httpRequestToolDefinition } from '../tools'
 import { BaseAgent, type AgentInput, type AgentRunMetadata, type AgentToolTrace } from './base-agent'
 import type { ClassificationOutput } from './classifier'
@@ -24,6 +27,7 @@ export interface ResponderInput extends AgentInput {
   lead_name: string
   classification: ClassificationOutput
   tools_enabled: boolean
+  mcp_tools: ChatCompletionTool[]
 }
 
 export interface ResponderOutput extends AgentRunMetadata {
@@ -32,6 +36,9 @@ export interface ResponderOutput extends AgentRunMetadata {
 }
 
 export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
+  private readonly mcpRegistry = new MCPRegistry()
+  private readonly toolExecutor = new ToolExecutor()
+
   constructor() {
     super({
       name: 'responder',
@@ -70,11 +77,8 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
    * @returns Tools disponíveis.
    */
   protected override getTools(input: ResponderInput): ChatCompletionTool[] {
-    if (!input.tools_enabled) {
-      return []
-    }
-
-    return [httpRequestToolDefinition]
+    const tools = input.tools_enabled ? [httpRequestToolDefinition] : []
+    return MCP_ENABLED ? [...tools, ...input.mcp_tools] : tools
   }
 
   /**
@@ -87,8 +91,17 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
     toolCall: ChatCompletionMessageToolCall,
     input: ResponderInput
   ): Promise<AgentToolTrace> {
-    void input
     const startedAt = Date.now()
+    if (MCP_ENABLED && this.mcpRegistry.parseToolCall(toolCall.function.name)) {
+      const [result] = await this.toolExecutor.execute([toolCall])
+      return {
+        tool: toolCall.function.name,
+        arguments: this.parseToolArguments(toolCall.function.arguments),
+        result: result ? JSON.parse(result.content) : null,
+        duration_ms: Date.now() - startedAt
+      }
+    }
+
     const args = this.parseToolArguments(toolCall.function.arguments)
     const result = await executeRegisteredTool(toolCall.function.name, args)
     return {
@@ -117,7 +130,7 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
   }
 
   private parseToolArguments(raw: string): Record<string, unknown> {
-    const parsed = JSON.parse(raw) as unknown
+    const parsed: unknown = JSON.parse(raw)
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return parsed as Record<string, unknown>
     }
