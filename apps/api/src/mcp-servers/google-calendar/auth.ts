@@ -32,6 +32,11 @@ function googleCalendarBaseUrl(): string {
   return `http://localhost:${env.API_PORT}/mcp/google-calendar`
 }
 
+function dashboardConnectedUrl(): string {
+  const dashboardUrl = env.DASHBOARD_URL ?? `http://localhost:${env.DASHBOARD_PORT}`
+  return `${dashboardUrl.replace(/\/$/, '')}/settings?tab=integrations&status=connected`
+}
+
 /**
  * Garante que o servidor MCP Google Calendar existe no banco.
  * @returns Registro do servidor MCP.
@@ -145,6 +150,6 @@ export async function registerGoogleCalendarAuthRoutes(app: FastifyInstance): Pr
     const mcpServer = await ensureGoogleCalendarMcpServer()
     await saveGoogleCredential(mcpServer.id, tokens)
 
-    return reply.redirect('/dashboard/settings?tab=integrations&status=connected')
+    return reply.redirect(dashboardConnectedUrl())
   })
 }
