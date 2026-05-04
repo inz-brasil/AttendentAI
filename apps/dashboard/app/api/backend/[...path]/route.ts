@@ -26,6 +26,9 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<NextR
   const headers = new Headers(request.headers)
   headers.delete('host')
   headers.delete('content-length')
+  if (process.env.WEBHOOK_SECRET && !headers.has('authorization')) {
+    headers.set('authorization', `Bearer ${process.env.WEBHOOK_SECRET}`)
+  }
 
   const hasBody = !['GET', 'HEAD'].includes(request.method)
   const response = await fetch(buildTargetUrl(request, context.params.path), {

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import * as Tabs from '@radix-ui/react-tabs'
 import { Badge } from '../../../../components/ui/badge'
 import { CodeEditor } from '../../../../components/ui/code-editor'
+import { ToolsPanel } from '../../../../components/tools-panel'
 import { useToast } from '../../../../components/ui/toast-provider'
 import type { Agent, AgentMetrics, AgentSkillRow, Skill } from '../../../../lib/api'
 
@@ -51,7 +52,7 @@ interface AgentEditorClientProps {
 }
 
 /**
- * Editor completo de agente com 4 abas: Identidade, System Prompt, Skills, Métricas.
+ * Editor completo de agente com 5 abas: Identidade, System Prompt, Skills, Ferramentas, Métricas.
  * @param props Dados iniciais do agente, skills e métricas.
  * @returns Editor tabbed.
  */
@@ -243,6 +244,7 @@ export function AgentEditorClient({
             { value: 'identity', label: 'Identidade' },
             { value: 'prompt', label: 'System Prompt' },
             { value: 'skills', label: 'Skills' },
+            { value: 'tools', label: 'Ferramentas' },
             { value: 'metrics', label: 'Métricas' }
           ].map(tab => (
             <Tabs.Trigger
@@ -500,6 +502,11 @@ export function AgentEditorClient({
               )}
             </div>
           </div>
+        </Tabs.Content>
+
+        {/* ABA: Ferramentas */}
+        <Tabs.Content value="tools" className="mt-5">
+          <ToolsPanel agentId={initialAgent.id} />
         </Tabs.Content>
 
         {/* ABA: Métricas */}

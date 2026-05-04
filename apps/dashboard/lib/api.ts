@@ -108,6 +108,55 @@ export interface TraceRun {
   events: AgentTrace[]
 }
 
+export interface McpTool {
+  name: string
+  description?: string
+  inputSchema: Record<string, unknown>
+}
+
+export interface McpServer {
+  id: string
+  name: string
+  slug: string
+  transport: 'http' | 'stdio'
+  url: string | null
+  command: string | null
+  auth_type: 'none' | 'oauth2' | 'api_key' | null
+  is_active: boolean | null
+  tools_cache: McpTool[] | null
+  tools_cached_at: string | null
+  created_at: string | null
+}
+
+export interface AgentMcpServerRow {
+  agent_id: string | null
+  mcp_server_id: string | null
+  enabled: boolean | null
+}
+
+export interface CalendarStatus {
+  connected: boolean
+  server: McpServer | null
+  credential: {
+    id: string
+    scope: string | null
+    granted_at: string | null
+    updated_at: string | null
+    token_expiry: string | null
+  } | null
+  account_email: string | null
+  tools_count: number
+}
+
+export interface NewMcpServerInput {
+  name: string
+  slug: string
+  transport: 'http' | 'stdio'
+  url?: string | null
+  command?: string | null
+  auth_type: 'none' | 'oauth2' | 'api_key'
+}
+
 export class ApiClientError extends Error {
   readonly status: number
   readonly code: string
@@ -120,10 +169,17 @@ export class ApiClientError extends Error {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  }
+  if (process.env.WEBHOOK_SECRET) {
+    headers.Authorization = `Bearer ${process.env.WEBHOOK_SECRET}`
+  }
+
   const response = await fetch(`${apiUrl}${path}`, {
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      ...headers,
       ...init.headers
     },
     cache: 'no-store'
@@ -163,5 +219,22 @@ export const api = {
   vaultFile: (phone: string, filename: string) =>
     request<{ filename: string; content: string }>(
       `/api/vault/${encodeURIComponent(phone)}/files/${encodeURIComponent(filename)}`
-    )
+    ),
+  getMcpServers: () => request<McpServer[]>('/api/mcp/servers'),
+  getAgentMcpServers: (agentId: string) =>
+    request<AgentMcpServerRow[]>(`/api/agents/${encodeURIComponent(agentId)}/mcp`),
+  testMcpServer: (id: string) =>
+    request<{ status: string; tools: string[] }>(`/api/mcp/servers/${encodeURIComponent(id)}/test`, { method: 'POST' }),
+  addMcpServer: (data: NewMcpServerInput) =>
+    request<McpServer>('/api/mcp/servers', { method: 'POST', body: JSON.stringify(data) }),
+  removeMcpServer: (id: string) =>
+    request<{ success: boolean }>(`/api/mcp/servers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  updateAgentMcpServers: (agentId: string, serverIds: string[]) =>
+    request<{ success: boolean; count: number }>(`/api/agents/${encodeURIComponent(agentId)}/mcp`, {
+      method: 'PUT',
+      body: JSON.stringify({ servers: serverIds.map((id) => ({ mcp_server_id: id, enabled: true })) })
+    }),
+  getCalendarStatus: () => request<CalendarStatus>('/api/mcp/google-calendar/status'),
+  disconnectCalendar: (credentialId: string) =>
+    request<{ success: boolean }>(`/api/mcp/credentials/${encodeURIComponent(credentialId)}`, { method: 'DELETE' })
 }

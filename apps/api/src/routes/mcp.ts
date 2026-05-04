@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { env } from '../config/env'
 import { db } from '../db/client'
-import { agentMcpServers, mcpServers } from '../db/schema'
+import { agentMcpServers, mcpCredentials, mcpServers } from '../db/schema'
 import { MCPClient } from '../mcp/client'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
@@ -39,6 +39,36 @@ export async function registerMcpRoutes(app: FastifyInstance): Promise<void> {
     return db.select().from(mcpServers)
   })
 
+  app.get('/api/mcp/google-calendar/status', async (request, reply) => {
+    if (!isAuthorized(request)) return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' })
+    const [server] = await db.select().from(mcpServers).where(eq(mcpServers.slug, 'google-calendar')).limit(1)
+    if (!server) {
+      return { connected: false, server: null, credential: null, tools_count: 0 }
+    }
+
+    const [credential] = await db
+      .select()
+      .from(mcpCredentials)
+      .where(eq(mcpCredentials.mcp_server_id, server.id))
+      .limit(1)
+
+    return {
+      connected: Boolean(credential?.refresh_token_encrypted),
+      server,
+      credential: credential
+        ? {
+            id: credential.id,
+            scope: credential.scope,
+            granted_at: credential.granted_at,
+            updated_at: credential.updated_at,
+            token_expiry: credential.token_expiry
+          }
+        : null,
+      account_email: null,
+      tools_count: server.tools_cache?.length ?? 5
+    }
+  })
+
   app.post('/api/mcp/servers', async (request, reply) => {
     if (!isAuthorized(request)) return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' })
     const body = serverBodySchema.parse(request.body)
@@ -64,6 +94,13 @@ export async function registerMcpRoutes(app: FastifyInstance): Promise<void> {
     return { success: true }
   })
 
+  app.delete('/api/mcp/credentials/:id', async (request, reply) => {
+    if (!isAuthorized(request)) return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' })
+    const { id } = idParamsSchema.parse(request.params)
+    await db.delete(mcpCredentials).where(eq(mcpCredentials.id, id))
+    return { success: true }
+  })
+
   app.post('/api/mcp/servers/:id/test', async (request, reply) => {
     if (!isAuthorized(request)) return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' })
     const { id } = idParamsSchema.parse(request.params)
@@ -86,5 +123,11 @@ export async function registerMcpRoutes(app: FastifyInstance): Promise<void> {
       })))
     }
     return { success: true, count: body.servers.length }
+  })
+
+  app.get('/api/agents/:id/mcp', async (request, reply) => {
+    if (!isAuthorized(request)) return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' })
+    const { id } = idParamsSchema.parse(request.params)
+    return db.select().from(agentMcpServers).where(eq(agentMcpServers.agent_id, id))
   })
 }
