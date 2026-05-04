@@ -17,7 +17,7 @@ const MODELS = [
   { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' }
 ]
 
-const AGENT_TYPES = ['orchestrator', 'classifier', 'responder', 'memory', 'identifier', 'custom'] as const
+const AGENT_TYPES = ['orchestrator', 'classifier', 'responder', 'memory', 'identifier', 'internal', 'custom'] as const
 
 const PROMPT_VARS = [
   { key: '{lead_name}', desc: 'Nome do lead' },

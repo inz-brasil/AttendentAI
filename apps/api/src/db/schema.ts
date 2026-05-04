@@ -11,6 +11,7 @@ export type AgentType =
   | 'responder'
   | 'memory'
   | 'identifier'
+  | 'internal'
   | 'custom'
 export type SkillPriority = 'high' | 'medium' | 'low'
 
@@ -119,4 +120,16 @@ export const tokenUsage = sqliteTable('token_usage', {
   completion_tokens: integer('completion_tokens').default(0),
   total_tokens: integer('total_tokens').default(0),
   estimated_cost_usd: real('estimated_cost_usd').default(0)
+})
+
+export const agentTraces = sqliteTable('agent_traces', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  phone: text('phone'),
+  agent: text('agent'),
+  event_type: text('event_type'),
+  title: text('title'),
+  data: text('data', { mode: 'json' }).$type<Record<string, unknown>>().default(sql`'{}'`),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).defaultNow()
 })

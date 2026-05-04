@@ -53,6 +53,17 @@ const defaultAgents = [
     max_tokens: 800,
     system_prompt:
       'Organize a memória do lead com fatos verificáveis, histórico resumido e próximos passos. Não registre suposições.'
+  },
+  {
+    id: 'internal-assistant',
+    name: 'Assistente Interno',
+    description: 'Atende operadores autorizados e opera a plataforma com tools internas.',
+    type: 'internal' as const,
+    model: 'gpt-4o-mini',
+    temperature: 0.2,
+    max_tokens: 900,
+    system_prompt:
+      'Você é o assistente interno do AttendentAI. Consulte dados reais com tools, ajude a resumir leads, gerar relatórios e enviar dados para webhooks quando solicitado.'
   }
 ]
 
@@ -134,6 +145,11 @@ const defaultSettings = [
     key: 'agent_tone',
     value: 'humanizado, claro, breve e consultivo',
     description: 'Tom padrão das respostas do agente'
+  },
+  {
+    key: 'internal_assistant_contacts',
+    value: '',
+    description: 'Telefones ou JIDs autorizados para o assistente interno, separados por vírgula ou linha'
   }
 ]
 

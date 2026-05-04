@@ -3,10 +3,11 @@ import { eq } from 'drizzle-orm'
 import pino from 'pino'
 import { ClassifierAgent } from '../agents/classifier'
 import { IdentifierAgent, type LeadFieldsToUpdate } from '../agents/identifier'
+import { InternalAssistantAgent } from '../agents/internal-assistant'
 import { MemoryAgent } from '../agents/memory-agent'
 import { ResponderAgent } from '../agents/responder'
 import { db } from '../db/client'
-import { leads } from '../db/schema'
+import { agents, leads, settings } from '../db/schema'
 import {
   getOrCreateLead,
   loadMemory,
@@ -60,6 +61,7 @@ const log = pino({ name: 'attendentai-orchestrator' })
 export class QueryEngine {
   private readonly classifier = new ClassifierAgent()
   private readonly identifier = new IdentifierAgent()
+  private readonly internalAssistant = new InternalAssistantAgent()
   private readonly memoryAgent = new MemoryAgent()
   private readonly promptBuilder = new PromptBuilder()
   private readonly responder = new ResponderAgent()
@@ -98,6 +100,10 @@ export class QueryEngine {
   private async processUnlocked(payload: WebhookPayload): Promise<WebhookResponse> {
     const startedAt = Date.now()
     const runtimeContext = this.resolveRuntimeContext(payload)
+    if (await this.isInternalAssistantContact(payload)) {
+      return this.processInternalAssistant(payload, runtimeContext, startedAt)
+    }
+
     const lead = await getOrCreateLead(payload.phone, payload.name, payload.contact_info)
     const memory = await loadMemory(payload.phone)
 
@@ -223,6 +229,95 @@ export class QueryEngine {
 
   private normalizeLeadUpdates(fields: LeadFieldsToUpdate): LeadUpdateInput {
     return fields
+  }
+
+  private async processInternalAssistant(
+    payload: WebhookPayload,
+    runtimeContext: { currentTime: string; timezone: string },
+    startedAt: number
+  ): Promise<WebhookResponse> {
+    const systemPrompt = await this.getInternalAssistantPrompt()
+    const response = await this.internalAssistant.run({
+      phone: payload.phone,
+      system_prompt: systemPrompt,
+      message: payload.message,
+      operator_name: payload.name,
+      current_time: runtimeContext.currentTime
+    })
+
+    broadcast({
+      type: 'new_message',
+      phone: payload.phone,
+      name: payload.name,
+      message: payload.message,
+      response: response.text,
+      agent: 'internal-assistant',
+      intent: 'internal',
+      timestamp: new Date().toISOString()
+    })
+    markMessageProcessed()
+
+    return {
+      success: true,
+      message: response.text,
+      audio_requested: false,
+      metadata: {
+        lead_id: payload.phone,
+        agent_used: 'internal-assistant',
+        tokens_used: response.tokens_used,
+        processing_ms: Date.now() - startedAt
+      }
+    }
+  }
+
+  private async isInternalAssistantContact(payload: WebhookPayload): Promise<boolean> {
+    const raw = await this.getSettingValue('internal_assistant_contacts')
+    const contacts = this.parseContactList(raw)
+    if (contacts.length === 0) {
+      return false
+    }
+
+    const identifiers = [
+      payload.phone,
+      payload.session_id,
+      this.getStringContactField(payload.contact_info, 'jid'),
+      this.getStringContactField(payload.contact_info, 'remoteJid'),
+      this.getStringContactField(payload.contact_info, 'groupJid'),
+      this.getStringContactField(payload.contact_info, 'group_jid')
+    ].filter((item): item is string => Boolean(item))
+
+    return identifiers.some((identifier) => contacts.includes(identifier))
+  }
+
+  private async getInternalAssistantPrompt(): Promise<string> {
+    const [agent] = await db.select().from(agents).where(eq(agents.id, 'internal-assistant')).limit(1)
+    return agent?.system_prompt ?? ''
+  }
+
+  private async getSettingValue(key: string): Promise<string> {
+    const [setting] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
+    return setting?.value ?? ''
+  }
+
+  private parseContactList(raw: string): string[] {
+    const trimmed = raw.trim()
+    if (!trimmed) {
+      return []
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed) as unknown
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      }
+    } catch {
+      // Configuração pode ser lista simples separada por vírgula ou linha.
+    }
+
+    return trimmed
+      .split(/[\n,;]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
   }
 
   private resolveRuntimeContext(payload: WebhookPayload): { currentTime: string; timezone: string } {

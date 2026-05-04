@@ -10,7 +10,7 @@ const agentBodySchema = z.object({
   id: z.string().min(1).optional(),
   name: z.string().min(1),
   description: z.string().nullable().optional(),
-  type: z.enum(['orchestrator', 'classifier', 'responder', 'memory', 'identifier', 'custom']).optional(),
+  type: z.enum(['orchestrator', 'classifier', 'responder', 'memory', 'identifier', 'internal', 'custom']).optional(),
   model: z.string().optional(),
   temperature: z.number().min(0).max(2).optional(),
   max_tokens: z.number().int().positive().optional(),

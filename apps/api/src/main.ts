@@ -14,6 +14,7 @@ import { registerLeadRoutes } from './routes/leads'
 import { registerPlaygroundRoutes } from './routes/playground'
 import { registerSettingRoutes } from './routes/settings'
 import { registerSkillRoutes } from './routes/skills'
+import { registerTraceRoutes } from './routes/traces'
 import { registerVaultRoutes } from './routes/vault'
 import { registerWebhookRoutes } from './routes/webhook'
 import { registerWebSocketServer } from './websocket/server'
@@ -116,6 +117,7 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
   await registerSkillRoutes(app)
   await registerSettingRoutes(app)
   await registerVaultRoutes(app)
+  await registerTraceRoutes(app)
   await registerPlaygroundRoutes(app)
 
   return app

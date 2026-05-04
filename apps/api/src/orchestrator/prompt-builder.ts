@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import pino from 'pino'
 import { env } from '../config/env'
 import { db } from '../db/client'
-import { settings } from '../db/schema'
+import { agents, settings } from '../db/schema'
 import { SkillsLoader } from '../skills/loader'
 import type { MemorySnapshot } from '../memory/persistent'
 import { VaultManager } from '../vault-manager/manager'
@@ -44,10 +44,11 @@ export class PromptBuilder {
    * @returns System prompt final.
    */
   async build(input: PromptBuilderInput): Promise<string> {
-    const [agentName, companyName, agentTone, skillsContext, globalContext] = await Promise.all([
+    const [agentName, companyName, agentTone, configuredPrompt, skillsContext, globalContext] = await Promise.all([
       this.getSetting('agent_name', 'AtendenteAI'),
       this.getSetting('company_name', 'AttendentAI'),
       this.getSetting('agent_tone', 'humanizado, claro, breve e consultivo'),
+      this.getAgentSystemPrompt(input.responderId),
       this.skillsLoader.loadForAgent(input.responderId),
       this.loadGlobalVaultContext()
     ])
@@ -57,8 +58,14 @@ export class PromptBuilder {
       .map((message) => `${message.role ?? 'unknown'}: ${message.content ?? ''}`)
       .join('\n')
 
+    const basePrompt = this.replacePromptVariables(configuredPrompt, input, agentName, companyName, agentTone)
     const prompt = [
-      `CAMADA 1 — IDENTIDADE BASE
+      `CAMADA 1 — PROMPT CONFIGURADO DO AGENTE
+${basePrompt || `Nome do atendente: ${agentName}
+Empresa: ${companyName}
+Tom e estilo: ${agentTone}`}
+
+Contexto operacional:
 Nome do atendente: ${agentName}
 Empresa: ${companyName}
 Tom e estilo: ${agentTone}
@@ -84,8 +91,10 @@ ${input.vaultContext || 'sem contexto relevante'}
 Contexto global aprovado:
 ${globalContext || 'sem contexto global cadastrado'}`,
       `CAMADA 4 — INSTRUÇÃO DE SAÍDA
-Responda APENAS com o texto da mensagem
-Sem markdown, sem bullets, sem headers
+Responda APENAS com o texto da mensagem final.
+Siga a formatação, ordem de atendimento e restrições definidas no prompt configurado do agente.
+Não use markdown, bullets ou headers quando o prompt configurado proibir; quando ele permitir, use apenas os formatos permitidos nele.
+Use a tool http_request quando houver webhook/API e dados confirmados para executar uma ação externa.
 Se for curto e adequado para áudio, inclua [AUDIO_OK] ao final
 Máximo 3 parágrafos`
     ].join('\n\n---\n\n')
@@ -97,6 +106,30 @@ Máximo 3 parágrafos`
   private async getSetting(key: string, fallback: string): Promise<string> {
     const [setting] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
     return setting?.value ?? fallback
+  }
+
+  private async getAgentSystemPrompt(agentId: string): Promise<string> {
+    const [agent] = await db.select().from(agents).where(eq(agents.id, agentId)).limit(1)
+    return agent?.system_prompt ?? ''
+  }
+
+  private replacePromptVariables(
+    prompt: string,
+    input: PromptBuilderInput,
+    agentName: string,
+    companyName: string,
+    agentTone: string
+  ): string {
+    return prompt
+      .replace(/{agent_name}/g, agentName)
+      .replace(/{company_name}/g, companyName)
+      .replace(/{agent_tone}/g, agentTone)
+      .replace(/{lead_name}/g, input.lead.name ?? 'não informado')
+      .replace(/{lead_phone}/g, input.lead.phone)
+      .replace(/{current_date}/g, input.lead.currentTime)
+      .replace(/{current_time}/g, input.lead.currentTime)
+      .replace(/{history_summary}/g, input.memory.history_summary || 'sem histórico')
+      .replace(/{vault_context}/g, input.vaultContext || 'sem contexto relevante')
   }
 
   private extractInterest(leadSummary: string, vaultContext: string): string {

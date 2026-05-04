@@ -15,6 +15,7 @@ const TYPE_LABEL: Record<string, string> = {
   responder: 'Respondedor',
   memory: 'Memória',
   identifier: 'Identificador',
+  internal: 'Interno',
   custom: 'Custom'
 }
 
@@ -25,6 +26,7 @@ function typeBadge(type: string | null): 'accent' | 'cyan' | 'success' | 'muted'
     case 'responder': return 'success'
     case 'memory': return 'muted'
     case 'identifier': return 'default'
+    case 'internal': return 'accent'
     default: return 'muted'
   }
 }

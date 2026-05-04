@@ -2,8 +2,9 @@
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import { env } from '../config/env'
 import { db } from '../db/client'
-import { leads, messages } from '../db/schema'
+import { conversations, leads, messages } from '../db/schema'
 import { VaultManager } from '../vault-manager/manager'
 
 const leadParamsSchema = z.object({ phone: z.string().min(1) })
@@ -24,7 +25,7 @@ const leadBodySchema = z.object({
  * @returns Nada.
  */
 export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
-  const vault = new VaultManager()
+  const vault = new VaultManager(env.VAULT_PATH)
 
   app.get('/api/leads', async () => db.select().from(leads))
 
@@ -52,6 +53,11 @@ export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
   app.delete('/api/leads/:phone/history', async (request) => {
     const { phone } = leadParamsSchema.parse(request.params)
     await db.delete(messages).where(eq(messages.lead_phone, phone))
+    await db.delete(conversations).where(eq(conversations.lead_phone, phone))
+    await db
+      .update(leads)
+      .set({ total_messages: 0, last_message_at: null, updated_at: new Date() })
+      .where(eq(leads.phone, phone))
     // Limpa historico.md mas preserva outros arquivos do vault
     try {
       await vault.deleteHistory(phone)
@@ -67,6 +73,7 @@ export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
   app.delete('/api/leads/:phone', async (request) => {
     const { phone } = leadParamsSchema.parse(request.params)
     await db.delete(messages).where(eq(messages.lead_phone, phone))
+    await db.delete(conversations).where(eq(conversations.lead_phone, phone))
     await db.delete(leads).where(eq(leads.phone, phone))
     try {
       await vault.delete(phone)

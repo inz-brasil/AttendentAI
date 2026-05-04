@@ -318,6 +318,21 @@ export function SettingsClient({ initialSettings }: SettingsClientProps): JSX.El
         </Field>
       </Section>
 
+      {/* SEÇÃO: Assistente interno */}
+      <Section title="Assistente interno" description="Números/JIDs que serão atendidos pelo agente de gestão da plataforma">
+        <Field label="Contatos autorizados">
+          <textarea
+            value={values.internal_assistant_contacts ?? ''}
+            onChange={e => set('internal_assistant_contacts', e.target.value)}
+            placeholder="5511999999999&#10;120363000000000000@g.us"
+            className="field-input min-h-24 font-mono text-xs"
+          />
+          <span className="text-[11px] text-muted/60">
+            Um por linha, ou separados por vírgula. Quando bater com phone, session_id, jid, remoteJid ou groupJid, o respondedor normal é bypassado.
+          </span>
+        </Field>
+      </Section>
+
       {/* SEÇÃO: Sistema */}
       <Section title="Sistema" description="Configurações de runtime e operação">
         <Field label="Timezone">

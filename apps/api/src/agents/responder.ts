@@ -1,13 +1,20 @@
 // responder.ts — Agente respondedor humanizado para WhatsApp
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import type {
+  ChatCompletionMessageParam,
+  ChatCompletionMessageToolCall,
+  ChatCompletionTool
+} from 'openai/resources/chat/completions'
 import { env } from '../config/env'
-import { BaseAgent, type AgentInput, type AgentRunMetadata } from './base-agent'
+import { executeRegisteredTool, httpRequestToolDefinition } from '../tools'
+import { BaseAgent, type AgentInput, type AgentRunMetadata, type AgentToolTrace } from './base-agent'
 import type { ClassificationOutput } from './classifier'
 
 const responderSystemPrompt = `Você é um atendente humanizado de WhatsApp. Responda de forma natural e empática.
 NUNCA invente informações que não foram fornecidas. Se não souber algo, diga que vai verificar.
 Mantenha respostas curtas (máximo 3 parágrafos). Se a resposta for adequada para áudio (curta,
-sem links, sem formatação), inclua [AUDIO_OK] ao final.`
+sem links, sem formatação), inclua [AUDIO_OK] ao final.
+Quando houver um link de webhook/API e dados confirmados para executar uma ação externa, use a tool http_request
+com JSON objetivo antes de responder ao lead.`
 
 export interface ResponderInput extends AgentInput {
   phone: string
@@ -60,6 +67,38 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
   }
 
   /**
+   * Disponibiliza requisições HTTP para integrações como n8n.
+   * @param input Entrada contextual do respondedor.
+   * @returns Tools disponíveis.
+   */
+  protected override getTools(input: ResponderInput): ChatCompletionTool[] {
+    void input
+    return [httpRequestToolDefinition]
+  }
+
+  /**
+   * Executa tool calls solicitados pelo respondedor.
+   * @param toolCall Chamada gerada pelo modelo.
+   * @param input Entrada contextual original.
+   * @returns Trace com argumentos, resultado e duração.
+   */
+  protected override async executeToolCall(
+    toolCall: ChatCompletionMessageToolCall,
+    input: ResponderInput
+  ): Promise<AgentToolTrace> {
+    void input
+    const startedAt = Date.now()
+    const args = this.parseToolArguments(toolCall.function.arguments)
+    const result = await executeRegisteredTool(toolCall.function.name, args)
+    return {
+      tool: toolCall.function.name,
+      arguments: args,
+      result,
+      duration_ms: Date.now() - startedAt
+    }
+  }
+
+  /**
    * Remove marcador de áudio e devolve saída estruturada.
    * @param text Texto bruto do modelo.
    * @param metadata Métricas da chamada.
@@ -74,5 +113,14 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
       audio_requested: audioRequested,
       ...metadata
     }
+  }
+
+  private parseToolArguments(raw: string): Record<string, unknown> {
+    const parsed = JSON.parse(raw) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>
+    }
+
+    throw new Error('Tool arguments must be a JSON object')
   }
 }

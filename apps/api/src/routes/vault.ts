@@ -23,6 +23,26 @@ export async function registerVaultRoutes(app: FastifyInstance): Promise<void> {
     return { leads: await vault.listLeads() }
   })
 
+  // ---- Vault Global (_global/) — conhecimento compartilhado entre agentes ----
+
+  app.get('/api/vault/_global/files', async () => {
+    const files = await vault.listGlobalFiles()
+    return { files }
+  })
+
+  app.get('/api/vault/_global/files/:filename', async (request) => {
+    const { filename } = z.object({ filename: z.string().min(1) }).parse(request.params)
+    const content = await vault.readGlobal(filename)
+    return { filename, content }
+  })
+
+  app.put('/api/vault/_global/files/:filename', async (request) => {
+    const { filename } = z.object({ filename: z.string().min(1) }).parse(request.params)
+    const { content } = fileBodySchema.parse(request.body)
+    await vault.writeGlobal(filename, content)
+    return { success: true }
+  })
+
   app.get('/api/vault/:phone/files', async (request) => {
     const params = phoneParamsSchema.parse(request.params)
     return { files: await vault.listFiles(params.phone) }
@@ -50,26 +70,6 @@ export async function registerVaultRoutes(app: FastifyInstance): Promise<void> {
   app.delete('/api/vault/:phone', async (request) => {
     const params = phoneParamsSchema.parse(request.params)
     await vault.delete(params.phone)
-    return { success: true }
-  })
-
-  // ---- Vault Global (_global/) — conhecimento compartilhado entre agentes ----
-
-  app.get('/api/vault/_global/files', async () => {
-    const files = await vault.listGlobalFiles()
-    return { files }
-  })
-
-  app.get('/api/vault/_global/files/:filename', async (request) => {
-    const { filename } = z.object({ filename: z.string().min(1) }).parse(request.params)
-    const content = await vault.readGlobal(filename)
-    return { filename, content }
-  })
-
-  app.put('/api/vault/_global/files/:filename', async (request) => {
-    const { filename } = z.object({ filename: z.string().min(1) }).parse(request.params)
-    const { content } = fileBodySchema.parse(request.body)
-    await vault.writeGlobal(filename, content)
     return { success: true }
   })
 }
