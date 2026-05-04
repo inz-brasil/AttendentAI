@@ -4,8 +4,9 @@
 .env.production
 
 # Dados persistentes
-data/
-vault/
+/data/
+/vault/
+/apps/api/vault/
 
 # Documentos de planejamento (ficam so local)
 docs/planning/
