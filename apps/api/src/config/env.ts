@@ -31,6 +31,11 @@ const envSchema = z.object({
   NEXT_PUBLIC_API_URL: z.string().url('NEXT_PUBLIC_API_URL deve ser uma URL válida'),
   AUDIO_AUTO_ENABLED: booleanStringSchema,
   AUDIO_MAX_CHARS: z.coerce.number().int().positive(),
+  ENCRYPTION_KEY: z.string().optional(),
+  MCP_ENABLED: booleanStringSchema.default('false'),
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_REDIRECT_URI: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional()
 })
 
@@ -61,6 +66,11 @@ function readRawEnv(): Record<keyof z.input<typeof envSchema>, string | undefine
     NEXT_PUBLIC_API_URL: Bun.env.NEXT_PUBLIC_API_URL,
     AUDIO_AUTO_ENABLED: Bun.env.AUDIO_AUTO_ENABLED,
     AUDIO_MAX_CHARS: Bun.env.AUDIO_MAX_CHARS,
+    ENCRYPTION_KEY: Bun.env.ENCRYPTION_KEY,
+    MCP_ENABLED: Bun.env.MCP_ENABLED,
+    GOOGLE_CLIENT_ID: Bun.env.GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET: Bun.env.GOOGLE_CLIENT_SECRET,
+    GOOGLE_REDIRECT_URI: Bun.env.GOOGLE_REDIRECT_URI,
     ANTHROPIC_API_KEY: Bun.env.ANTHROPIC_API_KEY
   }
 }

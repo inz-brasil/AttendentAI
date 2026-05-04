@@ -3,6 +3,7 @@ import { asc, desc, eq, inArray } from 'drizzle-orm'
 import OpenAI from 'openai'
 import pino from 'pino'
 import { env } from '../config/env'
+import { MEMORY_CONFIG } from '../config/memory'
 import { db } from '../db/client'
 import { messages, tokenUsage } from '../db/schema'
 import { VaultManager } from '../vault-manager/manager'
@@ -35,7 +36,7 @@ export class Summarizer {
    */
   async shouldSummarize(phone: string): Promise<boolean> {
     const rows = await db.select({ id: messages.id }).from(messages).where(eq(messages.lead_phone, phone))
-    return rows.length > 20
+    return rows.length >= MEMORY_CONFIG.COMPACTION_THRESHOLD
   }
 
   /**
@@ -49,7 +50,7 @@ export class Summarizer {
       .from(messages)
       .where(eq(messages.lead_phone, phone))
       .orderBy(desc(messages.created_at))
-      .limit(10)
+      .limit(MEMORY_CONFIG.MESSAGES_PRESERVED_AFTER_COMPACTION)
 
     const latestIds = new Set(latestMessages.map((message) => message.id))
     const allMessages = await db

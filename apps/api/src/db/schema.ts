@@ -14,6 +14,14 @@ export type AgentType =
   | 'internal'
   | 'custom'
 export type SkillPriority = 'high' | 'medium' | 'low'
+export type MCPTransport = 'http' | 'stdio'
+export type MCPAuthType = 'none' | 'oauth2' | 'api_key'
+
+export interface MCPTool {
+  name: string
+  description?: string
+  inputSchema: Record<string, unknown>
+}
 
 export const leads = sqliteTable('leads', {
   phone: text('phone').primaryKey(),
@@ -100,6 +108,48 @@ export const agentSkills = sqliteTable('agent_skills', {
   agent_id: text('agent_id').references(() => agents.id),
   skill_id: text('skill_id').references(() => skills.id),
   order: integer('order').default(0)
+})
+
+export const leadMemoryMeta = sqliteTable('lead_memory_meta', {
+  phone: text('phone').primaryKey().references(() => leads.phone),
+  last_compaction_at: integer('last_compaction_at', { mode: 'timestamp_ms' }),
+  total_compactions: integer('total_compactions').default(0),
+  total_messages_summarized: integer('total_messages_summarized').default(0)
+})
+
+export const mcpServers = sqliteTable('mcp_servers', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text('name').notNull(),
+  slug: text('slug').unique().notNull(),
+  transport: text('transport').$type<MCPTransport>().notNull(),
+  url: text('url'),
+  command: text('command'),
+  auth_type: text('auth_type').$type<MCPAuthType>().default('none'),
+  is_active: integer('is_active', { mode: 'boolean' }).default(true),
+  tools_cache: text('tools_cache', { mode: 'json' }).$type<MCPTool[]>(),
+  tools_cached_at: integer('tools_cached_at', { mode: 'timestamp_ms' }),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).defaultNow()
+})
+
+export const agentMcpServers = sqliteTable('agent_mcp_servers', {
+  agent_id: text('agent_id').references(() => agents.id),
+  mcp_server_id: text('mcp_server_id').references(() => mcpServers.id),
+  enabled: integer('enabled', { mode: 'boolean' }).default(true)
+})
+
+export const mcpCredentials = sqliteTable('mcp_credentials', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  mcp_server_id: text('mcp_server_id').references(() => mcpServers.id),
+  scope: text('scope').default('system'),
+  access_token_encrypted: text('access_token_encrypted'),
+  refresh_token_encrypted: text('refresh_token_encrypted'),
+  token_expiry: integer('token_expiry', { mode: 'timestamp_ms' }),
+  granted_at: integer('granted_at', { mode: 'timestamp_ms' }),
+  updated_at: integer('updated_at', { mode: 'timestamp_ms' }).defaultNow()
 })
 
 export const settings = sqliteTable('settings', {

@@ -1,4 +1,4 @@
-// drizzle.config.ts — Configura migrations Drizzle da API
+// drizzle.config.ts — Configura migrations Drizzle quando executadas dentro de apps/api
 import { defineConfig } from 'drizzle-kit'
 
 export default defineConfig({

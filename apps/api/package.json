@@ -7,6 +7,7 @@
     "dev": "bun --watch src/main.ts",
     "build": "bun build src/main.ts --outdir dist --target bun",
     "start": "bun dist/main.js",
+    "drizzle-kit": "node node_modules/drizzle-kit/bin.cjs",
     "typecheck": "bun tsc --noEmit"
   },
   "dependencies": {
