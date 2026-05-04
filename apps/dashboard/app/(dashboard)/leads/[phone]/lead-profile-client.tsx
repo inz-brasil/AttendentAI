@@ -71,7 +71,7 @@ export function LeadProfileClient({
   })
 
   // Estado das mensagens
-  const [messages] = useState<Message[]>(initialMessages)
+  const [messages, setMessages] = useState<Message[]>(initialMessages)
 
   // Estado do vault
   const [vaultContent, setVaultContent] = useState<Record<string, string>>({})
@@ -142,6 +142,7 @@ export function LeadProfileClient({
       const updated = await res.json() as Lead
       setLead(updated)
       setEditing(false)
+      router.refresh()
       toast({ title: 'Perfil atualizado', variant: 'success' })
     } catch {
       toast({ title: 'Erro ao salvar perfil', variant: 'danger' })
@@ -153,7 +154,10 @@ export function LeadProfileClient({
   /** Apaga histórico */
   async function deleteHistory() {
     try {
-      await fetch(`${API_BASE}/api/leads/${encodeURIComponent(phone)}/history`, { method: 'DELETE' })
+      const res = await fetch(`${API_BASE}/api/leads/${encodeURIComponent(phone)}/history`, { method: 'DELETE' })
+      if (!res.ok) throw new Error()
+      setMessages([])
+      setLead(prev => ({ ...prev, total_messages: 0 }))
       toast({ title: 'Histórico apagado', variant: 'success' })
       router.refresh()
     } catch {
@@ -164,9 +168,11 @@ export function LeadProfileClient({
   /** Remove lead */
   async function deleteLead() {
     try {
-      await fetch(`${API_BASE}/api/leads/${encodeURIComponent(phone)}`, { method: 'DELETE' })
+      const res = await fetch(`${API_BASE}/api/leads/${encodeURIComponent(phone)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error()
       toast({ title: 'Lead removido', variant: 'success' })
       router.push('/leads')
+      router.refresh()
     } catch {
       toast({ title: 'Erro ao remover lead', variant: 'danger' })
     }

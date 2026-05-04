@@ -60,6 +60,16 @@ export interface AgentMetrics {
   estimated_cost_usd: number
 }
 
+export interface ConversationMessage {
+  id: string
+  lead_phone: string | null
+  role: 'user' | 'assistant' | null
+  content: string | null
+  intent: string | null
+  agent_used: string | null
+  created_at: string | null
+}
+
 export interface Setting {
   key: string
   value: string | null
@@ -136,6 +146,7 @@ export const api = {
   health: () => request<{ status: string; timestamp: string; version: string }>('/health'),
   leads: () => request<Lead[]>('/api/leads'),
   lead: (phone: string) => request<Lead>(`/api/leads/${encodeURIComponent(phone)}`),
+  conversations: () => request<{ messages: ConversationMessage[] }>('/api/conversations'),
   agents: () => request<Agent[]>('/api/agents'),
   agent: (id: string) => request<Agent>(`/api/agents/${encodeURIComponent(id)}`),
   agentSkills: (id: string) => request<AgentSkillRow[]>(`/api/agents/${encodeURIComponent(id)}/skills`),

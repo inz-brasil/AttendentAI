@@ -1,6 +1,6 @@
 'use client'
 // leads-client.tsx — Tabela de leads com busca debounced, filtro de status, paginação e ações rápidas
-import { useState, useMemo, useCallback, useTransition } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import * as Select from '@radix-ui/react-select'
@@ -44,13 +44,12 @@ function useDebouncedSearch(initial: string, delay = 300) {
   const [raw, setRaw] = useState(initial)
   const [debounced, setDebounced] = useState(initial)
 
-  const onChange = useCallback((v: string) => {
-    setRaw(v)
-    const t = setTimeout(() => setDebounced(v), delay)
-    return () => clearTimeout(t)
-  }, [delay])
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(raw), delay)
+    return () => clearTimeout(timer)
+  }, [delay, raw])
 
-  return { raw, debounced, onChange }
+  return { raw, debounced, onChange: setRaw }
 }
 
 /**
@@ -61,13 +60,16 @@ function useDebouncedSearch(initial: string, delay = 300) {
 export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Element {
   const router = useRouter()
   const { toast } = useToast()
-  const [isPending, startTransition] = useTransition()
 
   const { raw: searchRaw, debounced: search, onChange: setSearch } = useDebouncedSearch('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('__all__')
   const [page, setPage] = useState(0)
   const [leads, setLeads] = useState(initialLeads)
   const [confirm, setConfirm] = useState<ConfirmState>({ open: false, type: null, phone: null, name: null })
+
+  useEffect(() => {
+    setLeads(initialLeads)
+  }, [initialLeads])
 
   // Filtragem client-side
   const filtered = useMemo(() => {
@@ -104,8 +106,11 @@ export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Ele
         { method: 'DELETE' }
       )
       if (!res.ok) throw new Error('Erro ao apagar histórico')
+      setLeads(prev => prev.map(lead =>
+        lead.phone === phone ? { ...lead, total_messages: 0 } : lead
+      ))
       toast({ title: 'Histórico apagado', variant: 'success' })
-      startTransition(() => router.refresh())
+      router.refresh()
     } catch {
       toast({ title: 'Erro ao apagar histórico', variant: 'danger' })
     }
@@ -120,6 +125,7 @@ export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Ele
       )
       if (!res.ok) throw new Error('Erro ao remover lead')
       setLeads(prev => prev.filter(l => l.phone !== phone))
+      router.refresh()
       toast({ title: 'Lead removido', variant: 'success' })
     } catch {
       toast({ title: 'Erro ao remover lead', variant: 'danger' })

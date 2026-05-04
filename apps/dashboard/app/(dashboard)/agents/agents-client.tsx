@@ -1,6 +1,6 @@
 'use client'
 // agents-client.tsx — Lista de agentes com toggle, IDs visíveis e estado de erro explícito
-import { useState, useTransition } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Badge } from '../../../components/ui/badge'
@@ -48,7 +48,10 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
   const [agents, setAgents] = useState(initialAgents)
   const [toggling, setToggling] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [, startTransition] = useTransition()
+
+  useEffect(() => {
+    setAgents(initialAgents)
+  }, [initialAgents])
 
   /** Copia ID para o clipboard */
   async function copyId(id: string) {
@@ -73,9 +76,10 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
         body: JSON.stringify({ is_active: newActive })
       })
       if (!res.ok) throw new Error()
-      setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, is_active: newActive } : a))
+      const updated = await res.json() as Agent
+      setAgents(prev => prev.map(a => a.id === agent.id ? updated : a))
       toast({ title: `Agente ${newActive ? 'ativado' : 'desativado'}`, variant: 'success' })
-      startTransition(() => router.refresh())
+      router.refresh()
     } catch {
       toast({ title: 'Erro ao alterar status — API online?', variant: 'danger' })
     } finally {

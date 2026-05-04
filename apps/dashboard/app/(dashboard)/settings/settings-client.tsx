@@ -89,6 +89,10 @@ export function SettingsClient({ initialSettings }: SettingsClientProps): JSX.El
         body: JSON.stringify(items)
       })
       if (!res.ok) throw new Error()
+      const refreshed = await fetch(`${API_BASE}/api/settings`, { cache: 'no-store' })
+      if (!refreshed.ok) throw new Error()
+      const savedSettings = await refreshed.json() as Setting[]
+      setValues(toMap(savedSettings))
       toast({ title: 'Configurações salvas', variant: 'success' })
     } catch {
       toast({ title: 'Erro ao salvar configurações', variant: 'danger' })

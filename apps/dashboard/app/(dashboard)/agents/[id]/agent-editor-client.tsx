@@ -128,24 +128,35 @@ export function AgentEditorClient({
     }
   }
 
-  async function saveSkills() {
+  function buildSkillsPayload(list: AgentSkillState[]) {
+    return list
+      .filter(s => s.enabled)
+      .map(s => ({ skill_id: s.skill_id, order: s.order }))
+  }
+
+  async function persistSkills(list: AgentSkillState[], successTitle: string): Promise<boolean> {
     setSavingSkills(true)
     try {
-      const payload = agentSkillList
-        .filter(s => s.enabled)
-        .map(s => ({ skill_id: s.skill_id, order: s.order }))
+      const payload = buildSkillsPayload(list)
       const res = await fetch(`${API_BASE}/api/agents/${encodeURIComponent(initialAgent.id)}/skills`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ skills: payload })
       })
       if (!res.ok) throw new Error()
-      toast({ title: `${payload.length} skills salvas`, variant: 'success' })
+      toast({ title: successTitle, variant: 'success' })
+      return true
     } catch {
       toast({ title: 'Erro ao salvar skills', variant: 'danger' })
+      return false
     } finally {
       setSavingSkills(false)
     }
+  }
+
+  async function saveSkills() {
+    const payload = buildSkillsPayload(agentSkillList)
+    await persistSkills(agentSkillList, `${payload.length} skills salvas`)
   }
 
   /** Insere variável no sistema prompt ao cursor (inserção simples) */
@@ -172,20 +183,32 @@ export function AgentEditorClient({
 
   function handleDragEnd() { setDragging(null) }
 
-  function toggleSkill(skill_id: string) {
-    setAgentSkillList(prev => prev.map(s => s.skill_id === skill_id ? { ...s, enabled: !s.enabled } : s))
+  async function toggleSkill(skill_id: string) {
+    const previous = agentSkillList
+    const next = previous.map(s => s.skill_id === skill_id ? { ...s, enabled: !s.enabled } : s)
+    setAgentSkillList(next)
+
+    const saved = await persistSkills(next, 'Skills atualizadas')
+    if (!saved) setAgentSkillList(previous)
   }
 
-  function addSkillToAgent() {
+  async function addSkillToAgent() {
     if (!skillToAdd) return
 
-    setAgentSkillList(prev => {
-      const lastOrder = Math.max(-1, ...prev.filter(s => s.enabled).map(s => s.order))
-      return prev.map(skill =>
-        skill.skill_id === skillToAdd ? { ...skill, enabled: true, order: lastOrder + 1 } : skill
-      )
-    })
+    const previous = agentSkillList
+    const selectedSkillId = skillToAdd
+    const lastOrder = Math.max(-1, ...previous.filter(s => s.enabled).map(s => s.order))
+    const next = previous.map(skill =>
+      skill.skill_id === selectedSkillId ? { ...skill, enabled: true, order: lastOrder + 1 } : skill
+    )
+
+    setAgentSkillList(next)
     setSkillToAdd('')
+    const saved = await persistSkills(next, 'Skill adicionada ao agente')
+    if (!saved) {
+      setAgentSkillList(previous)
+      setSkillToAdd(selectedSkillId)
+    }
   }
 
   // Preço do modelo selecionado
