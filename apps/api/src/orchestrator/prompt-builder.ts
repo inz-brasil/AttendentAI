@@ -23,6 +23,7 @@ export interface PromptBuilderInput {
   lead: LeadPromptContext
   memory: MemorySnapshot
   vaultContext: string
+  selectedSkillIds?: string[]
 }
 
 export interface PromptBuildResult {
@@ -72,7 +73,7 @@ export class PromptBuilder {
       this.getSetting('agent_tone', 'humanizado, claro, breve e consultivo'),
       this.getSetting('tool_http_enabled', 'false'),
       this.getAgentSystemPrompt(input.responderId),
-      this.loadSkillsContext(input.responderId),
+      this.loadSkillsContext(input.responderId, input.selectedSkillIds),
       this.loadGlobalVaultContext()
     ])
 
@@ -171,11 +172,15 @@ Máximo 3 parágrafos`
     return 'não informado'
   }
 
-  private async loadSkillsContext(agentId: string): Promise<{
+  private async loadSkillsContext(agentId: string, selectedSkillIds: string[] | undefined): Promise<{
     content: string
     skills: PromptBuildResult['skills']
   }> {
-    const rows = await this.skillsLoader.loadRowsForAgent(agentId)
+    const allRows = await this.skillsLoader.loadRowsForAgent(agentId)
+    const selectedSet = new Set(selectedSkillIds ?? [])
+    const rows = selectedSkillIds
+      ? allRows.filter((skill) => selectedSet.has(skill.id))
+      : allRows
     return {
       content: rows.map((skill) => [
         `## Skill: ${skill.name}`,

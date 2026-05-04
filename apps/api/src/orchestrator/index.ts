@@ -6,6 +6,7 @@ import { IdentifierAgent, type LeadFieldsToUpdate } from '../agents/identifier'
 import { InternalAssistantAgent } from '../agents/internal-assistant'
 import { MemoryAgent } from '../agents/memory-agent'
 import { ResponderAgent } from '../agents/responder'
+import { SkillRouterAgent, type SkillCandidate } from '../agents/skill-router'
 import { db } from '../db/client'
 import { agents, leads, settings } from '../db/schema'
 import {
@@ -20,6 +21,7 @@ import {
 import { markMessageProcessed } from '../monitoring/status'
 import { recordTrace, truncateTraceText } from '../monitoring/trace-recorder'
 import { acquirePhoneLock, releasePhoneLock, waitForPhoneLockRelease } from '../queue/redis'
+import { SkillsLoader } from '../skills/loader'
 import { broadcast } from '../websocket/server'
 import { PromptBuilder } from './prompt-builder'
 
@@ -67,6 +69,8 @@ export class QueryEngine {
   private readonly memoryAgent = new MemoryAgent()
   private readonly promptBuilder = new PromptBuilder()
   private readonly responder = new ResponderAgent()
+  private readonly skillRouter = new SkillRouterAgent()
+  private readonly skillsLoader = new SkillsLoader()
 
   /**
    * Processa um payload de webhook e retorna a resposta final.
@@ -214,9 +218,18 @@ export class QueryEngine {
     })
     const memorySummary = this.buildMemorySummary(
       refreshedMemory.lead_summary,
-      refreshedMemory.history_summary,
+      liveSummary,
       refreshedMemory.recent_messages
     )
+    const skillCandidates = await this.loadSkillCandidates('responder')
+    const routedSkills = await this.routeSkills({
+      phone: payload.phone,
+      runId,
+      message: payload.message,
+      liveSummary,
+      classification,
+      candidates: skillCandidates
+    })
     const promptBuild = await this.promptBuilder.buildDetailed({
       responderId: 'responder',
       lead: {
@@ -232,7 +245,8 @@ export class QueryEngine {
         ...refreshedMemory,
         history_summary: liveSummary
       },
-      vaultContext
+      vaultContext,
+      selectedSkillIds: routedSkills.selectedSkillIds
     })
     const systemPrompt = promptBuild.prompt
     await recordTrace({
@@ -246,6 +260,7 @@ export class QueryEngine {
         system_prompt_final: promptBuild.prompt,
         live_summary: liveSummary,
         skills: promptBuild.skills,
+        skill_router: routedSkills,
         global_vault_files: promptBuild.globalFiles,
         tools_enabled: await this.isHttpToolEnabled()
       }
@@ -386,6 +401,97 @@ export class QueryEngine {
 
   private normalizeWhatsAppResponse(text: string): string {
     return text.replace(/—/g, '-')
+  }
+
+  private async loadSkillCandidates(agentId: string): Promise<SkillCandidate[]> {
+    const rows = await this.skillsLoader.loadRowsForAgent(agentId)
+    return rows.map((skill) => ({
+      id: skill.id,
+      slug: skill.slug,
+      name: skill.name,
+      description: skill.description,
+      when_to_use: skill.when_to_use,
+      priority: skill.priority
+    }))
+  }
+
+  private async routeSkills(input: {
+    phone: string
+    runId: string
+    message: string
+    liveSummary: string
+    classification: Awaited<ReturnType<ClassifierAgent['run']>>
+    candidates: SkillCandidate[]
+  }): Promise<{ selectedSkillIds: string[]; reason: string; fallback: boolean }> {
+    if (input.candidates.length === 0) {
+      return { selectedSkillIds: [], reason: 'nenhuma_skill_associada', fallback: true }
+    }
+
+    const output = await this.skillRouter.run({
+      phone: input.phone,
+      message: input.message,
+      history_summary: input.liveSummary,
+      classification: input.classification,
+      candidates: input.candidates
+    })
+    const validIds = new Set(input.candidates.map((skill) => skill.id))
+    const selected = output.selected_skill_ids.filter((id) => validIds.has(id)).slice(0, 3)
+    const fallback = selected.length === 0
+    const selectedSkillIds = fallback ? this.fallbackSkillIds(input.classification.intent, input.candidates) : selected
+    const result = {
+      selectedSkillIds,
+      reason: fallback ? `fallback: ${output.reason}` : output.reason,
+      fallback
+    }
+
+    await recordTrace({
+      phone: input.phone,
+      runId: input.runId,
+      agent: 'skill-router',
+      eventType: 'skill_routed',
+      title: 'Skills selecionadas',
+      data: {
+        selected_skill_ids: result.selectedSkillIds,
+        selected_skills: input.candidates
+          .filter((skill) => result.selectedSkillIds.includes(skill.id))
+          .map((skill) => ({ id: skill.id, slug: skill.slug, name: skill.name })),
+        reason: result.reason,
+        fallback: result.fallback,
+        candidates: input.candidates.map((skill) => ({
+          id: skill.id,
+          slug: skill.slug,
+          name: skill.name,
+          priority: skill.priority,
+          when_to_use: skill.when_to_use
+        }))
+      }
+    })
+
+    return result
+  }
+
+  private fallbackSkillIds(intent: string, candidates: SkillCandidate[]): string[] {
+    const termsByIntent: Record<string, string[]> = {
+      sales: ['venda', 'comercial', 'obje'],
+      scheduling: ['agenda', 'reuni'],
+      qualification: ['qualifica'],
+      support: ['suporte'],
+      complaint: ['suporte']
+    }
+    const terms = termsByIntent[intent] ?? ['atendimento']
+    const matches = candidates
+      .filter((skill) => {
+        const source = `${skill.name} ${skill.slug ?? ''} ${skill.description ?? ''}`.toLowerCase()
+        return terms.some((term) => source.includes(term))
+      })
+      .slice(0, 2)
+      .map((skill) => skill.id)
+    const general = candidates.find((skill) => {
+      const source = `${skill.name} ${skill.slug ?? ''}`.toLowerCase()
+      return source.includes('atendimento') || source.includes('geral')
+    })
+
+    return [...new Set([...matches, ...(general ? [general.id] : [])])].slice(0, 3)
   }
 
   private buildLiveConversationSummary(

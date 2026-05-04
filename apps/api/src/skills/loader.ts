@@ -16,6 +16,8 @@ function rankPriority(priority: string | null): number {
 }
 
 function formatSkill(skill: {
+  id: string
+  slug: string | null
   name: string
   description: string | null
   when_to_use: string | null
@@ -23,7 +25,7 @@ function formatSkill(skill: {
   content: string | null
 }): string {
   return [
-    `## Skill: ${skill.name}`,
+    `## Skill: ${skill.name} (${skill.slug ?? skill.id})`,
     skill.description ? `Descrição: ${skill.description}` : null,
     skill.when_to_use ? `Quando usar: ${skill.when_to_use}` : null,
     `Prioridade: ${skill.priority ?? 'medium'}`,
@@ -40,6 +42,8 @@ export class SkillsLoader {
    * @returns Skills ordenadas por prioridade e ordem manual.
    */
   async loadRowsForAgent(agentId: string): Promise<Array<{
+    id: string
+    slug: string | null
     name: string
     description: string | null
     when_to_use: string | null
@@ -49,6 +53,8 @@ export class SkillsLoader {
   }>> {
     const rows = await db
       .select({
+        id: skills.id,
+        slug: skills.slug,
         name: skills.name,
         description: skills.description,
         when_to_use: skills.when_to_use,
