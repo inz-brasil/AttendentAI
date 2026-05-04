@@ -118,6 +118,8 @@ Responda APENAS com o texto da mensagem final.
 Siga a formatação, ordem de atendimento e restrições definidas no prompt configurado do agente.
 Não use markdown, bullets ou headers quando o prompt configurado proibir; quando ele permitir, use apenas os formatos permitidos nele.
 ${httpToolEnabled === 'true' ? 'Use a tool http_request quando houver webhook/API e dados confirmados para executar uma ação externa.' : 'Tools externas estão desativadas para este agente no momento.'}
+Faça no máximo UMA pergunta direta na resposta final.
+Se houver duas perguntas possíveis, escolha a mais importante para avançar a conversa agora.
 Se for curto e adequado para áudio, inclua [AUDIO_OK] ao final
 Máximo 3 parágrafos`
     ].join('\n\n---\n\n')

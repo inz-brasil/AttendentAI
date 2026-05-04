@@ -125,7 +125,7 @@ export function TracesClient({ initialContacts }: TracesClientProps): JSX.Elemen
         </button>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
         <aside className="rounded-lg border border-line bg-panel shadow-panel">
           <div className="border-b border-line px-4 py-3">
             <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">Contatos recentes</div>
@@ -157,7 +157,7 @@ export function TracesClient({ initialContacts }: TracesClientProps): JSX.Elemen
           </div>
         </aside>
 
-        <section className="min-h-[70vh] rounded-lg border border-line bg-panel shadow-panel">
+        <section className="min-w-0 min-h-[70vh] rounded-lg border border-line bg-panel shadow-panel">
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <div>
               <div className="text-sm font-semibold text-ink">{selectedContact?.lead_name ?? (selectedPhone || 'Selecione um contato')}</div>
@@ -181,7 +181,7 @@ export function TracesClient({ initialContacts }: TracesClientProps): JSX.Elemen
               {loading ? 'Carregando runs...' : 'Clique em carregar runs para abrir a timeline deste contato.'}
             </div>
           ) : (
-            <div className="space-y-4 p-4">
+            <div className="min-w-0 space-y-4 p-4">
               {runs.map((run, index) => (
                 <RunCard
                   key={run.run_id}
@@ -217,7 +217,7 @@ function RunCard({
   onTogglePrompt: (id: string | null) => void
 }): JSX.Element {
   return (
-    <article className="rounded-lg border border-line bg-canvas">
+    <article className="min-w-0 rounded-lg border border-line bg-canvas">
       <div className="border-b border-line px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -236,7 +236,7 @@ function RunCard({
         </div>
       </div>
 
-      <div className="space-y-0 p-3">
+      <div className="min-w-0 space-y-0 p-3">
         {run.events.map((event, eventIndex) => (
           <TraceStep
             key={event.id}
@@ -271,14 +271,14 @@ function TraceStep({
   const eventType = event.event_type ?? 'unknown'
   const prompt = getPrompt(event.data)
   return (
-    <div className="grid grid-cols-[28px_1fr] gap-3">
+    <div className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-3">
       <div className="flex flex-col items-center">
         <div className="grid h-6 w-6 place-items-center rounded-full border border-line bg-panel font-mono text-[10px] text-muted">
           {eventIndex + 1}
         </div>
         <div className="h-full w-px bg-line" />
       </div>
-      <div className="pb-4">
+      <div className="min-w-0 pb-4">
         <div className="rounded-md border border-line bg-panel px-3 py-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -307,13 +307,13 @@ function TraceStep({
         </div>
 
         {promptOpen && (
-          <pre className="mt-2 max-h-[520px] overflow-auto rounded-md border border-line bg-canvas p-3 font-mono text-[11px] leading-relaxed text-ink">
+          <pre className="mt-2 max-h-80 w-full max-w-full overflow-auto whitespace-pre-wrap break-words rounded-md border border-line bg-canvas p-3 font-mono text-[11px] leading-relaxed text-ink lg:max-h-[420px]">
             {prompt}
           </pre>
         )}
 
         {isOpen && (
-          <pre className="mt-2 max-h-96 overflow-auto rounded-md border border-line bg-canvas p-3 font-mono text-[11px] leading-relaxed text-muted">
+          <pre className="mt-2 max-h-72 w-full max-w-full overflow-auto whitespace-pre-wrap break-words rounded-md border border-line bg-canvas p-3 font-mono text-[11px] leading-relaxed text-muted lg:max-h-80">
             {stringifyData(event.data)}
           </pre>
         )}

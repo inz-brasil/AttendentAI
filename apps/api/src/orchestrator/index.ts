@@ -11,6 +11,7 @@ import { agents, leads, settings } from '../db/schema'
 import {
   getOrCreateLead,
   loadMemory,
+  saveConversationSummary,
   saveMessage,
   updateLead,
   type ContactInfo,
@@ -196,6 +197,8 @@ export class QueryEngine {
       })
     }
     const refreshedMemory = await loadMemory(payload.phone)
+    const liveSummary = this.buildLiveConversationSummary(payload, refreshedLead?.name ?? payload.name, refreshedMemory.recent_messages)
+    await saveConversationSummary(payload.phone, refreshedLead?.name ?? payload.name, liveSummary)
     const vaultContext = await this.memoryAgent.fetchRelevant(payload.phone, classification.intent)
     await recordTrace({
       phone: payload.phone,
@@ -225,7 +228,10 @@ export class QueryEngine {
         currentTime: runtimeContext.currentTime,
         timezone: runtimeContext.timezone
       },
-      memory: refreshedMemory,
+      memory: {
+        ...refreshedMemory,
+        history_summary: liveSummary
+      },
       vaultContext
     })
     const systemPrompt = promptBuild.prompt
@@ -238,6 +244,7 @@ export class QueryEngine {
       data: {
         prompt_chars: promptBuild.promptChars,
         system_prompt_final: promptBuild.prompt,
+        live_summary: liveSummary,
         skills: promptBuild.skills,
         global_vault_files: promptBuild.globalFiles,
         tools_enabled: await this.isHttpToolEnabled()
@@ -379,6 +386,50 @@ export class QueryEngine {
 
   private normalizeWhatsAppResponse(text: string): string {
     return text.replace(/—/g, '-')
+  }
+
+  private buildLiveConversationSummary(
+    payload: WebhookPayload,
+    leadName: string,
+    recentMessages: Array<{ role: string | null; content: string | null }>
+  ): string {
+    const previous = recentMessages
+      .slice(-6)
+      .map((message) => `${message.role === 'assistant' ? 'Assistente' : 'Lead'}: ${message.content ?? ''}`)
+      .filter((line) => line.trim().length > 0)
+
+    const currentMessage = payload.message.trim()
+    const sourceHint = this.inferSourceHint(currentMessage, payload.contact_info)
+    const knownName = leadName.trim() ? leadName : 'nome ainda não confirmado'
+    const stage = previous.length === 0
+      ? 'início da conversa'
+      : 'conversa em andamento'
+
+    return [
+      `Estado atual: ${stage}. Lead identificado como ${knownName}.`,
+      `Última mensagem do lead: "${truncateTraceText(currentMessage, 220)}".`,
+      sourceHint,
+      previous.length > 0 ? `Contexto recente:\n${previous.join('\n')}` : 'Ainda não há histórico anterior relevante.',
+      'Próximo passo: responder de forma direta, evitar redundância e fazer no máximo uma pergunta objetiva.'
+    ].join('\n')
+  }
+
+  private inferSourceHint(message: string, contactInfo: ContactInfo | undefined): string {
+    const lower = message.toLowerCase()
+    const campaign = this.getStringContactField(contactInfo, 'campaign') ?? this.getStringContactField(contactInfo, 'utm_campaign')
+    if (campaign) {
+      return `Origem provável: campanha/anúncio "${campaign}".`
+    }
+
+    if (lower.includes('anúncio') || lower.includes('anuncio') || lower.includes('saber mais')) {
+      return 'Origem provável: lead veio de anúncio ou campanha e demonstrou interesse inicial.'
+    }
+
+    if (['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite'].includes(lower)) {
+      return 'Origem provável: entrada genérica sem intenção declarada ainda.'
+    }
+
+    return 'Origem provável: não identificada pelos dados recebidos.'
   }
 
   private async processInternalAssistant(

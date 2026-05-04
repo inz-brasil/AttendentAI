@@ -131,6 +131,22 @@ export async function updateLead(phone: string, fields: LeadUpdateInput): Promis
 }
 
 /**
+ * Salva um resumo curto do estado atual da conversa no historico.md.
+ * @param phone Telefone do lead.
+ * @param name Nome conhecido do lead.
+ * @param summary Resumo operacional curto.
+ * @returns Nada.
+ */
+export async function saveConversationSummary(phone: string, name: string, summary: string): Promise<void> {
+  const content = `# Histórico de Conversas — ${name || phone}
+
+## Resumo
+${summary.trim() || 'Sem resumo operacional ainda.'}
+`
+  await vault.write(phone, 'historico.md', content)
+}
+
+/**
  * Salva uma mensagem e cria conversa se necessário.
  * @param phone Telefone do lead.
  * @param role Papel da mensagem.
