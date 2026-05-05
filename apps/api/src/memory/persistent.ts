@@ -46,6 +46,7 @@ const vault = new VaultManager(env.VAULT_PATH)
 const summarizer = new Summarizer(vault)
 const summarizingPhones = new Set<string>()
 const log = pino({ name: 'attendentai-memory' })
+const hotIntentSet = new Set(['scheduling'])
 
 function maxMemoryChars(): number {
   return MEMORY_CONFIG.MAX_MEMORY_TOKENS * 4
@@ -230,10 +231,12 @@ export async function saveMessage(
   })
 
   const [lead] = await db.select().from(leads).where(eq(leads.phone, phone)).limit(1)
+  const nextStatus = resolveNextLeadStatus(lead?.status ?? null, role, metadata.intent)
   await db
     .update(leads)
     .set({
       total_messages: (lead?.total_messages ?? 0) + 1,
+      ...(nextStatus ? { status: nextStatus } : {}),
       last_message_at: new Date(),
       updated_at: new Date()
     })
@@ -248,6 +251,37 @@ export async function saveMessage(
     .where(eq(conversations.id, conversationId))
 
   await triggerSummarizationIfNeeded(phone)
+}
+
+/**
+ * Atualiza status comercial do lead sem sobrescrever conversão manual.
+ * @param phone Telefone do lead.
+ * @param status Novo status.
+ * @returns Nada.
+ */
+export async function setLeadStatus(phone: string, status: LeadStatus): Promise<void> {
+  const [lead] = await db.select({ status: leads.status }).from(leads).where(eq(leads.phone, phone)).limit(1)
+  if (lead?.status === 'convertido') {
+    return
+  }
+
+  await db.update(leads).set({ status, updated_at: new Date() }).where(eq(leads.phone, phone))
+}
+
+function resolveNextLeadStatus(
+  currentStatus: LeadStatus | null,
+  role: MessageRole,
+  intent: string | undefined
+): LeadStatus | null {
+  if (currentStatus === 'convertido' || currentStatus === 'lead_quente') {
+    return null
+  }
+
+  if (role === 'user') {
+    return hotIntentSet.has(intent ?? '') ? 'lead_quente' : 'ativo'
+  }
+
+  return null
 }
 
 async function triggerSummarizationIfNeeded(phone: string): Promise<void> {

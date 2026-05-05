@@ -16,8 +16,23 @@ export async function registerConversationRoutes(app: FastifyInstance): Promise<
   // Feed geral: últimas 50 mensagens de todos os leads (para a home)
   app.get('/api/conversations', async () => {
     const rows = await db
-      .select()
+      .select({
+        id: messages.id,
+        conversation_id: messages.conversation_id,
+        lead_phone: messages.lead_phone,
+        lead_name: leads.name,
+        role: messages.role,
+        content: messages.content,
+        message_type: messages.message_type,
+        audio_requested: messages.audio_requested,
+        intent: messages.intent,
+        tokens_used: messages.tokens_used,
+        agent_used: messages.agent_used,
+        processing_ms: messages.processing_ms,
+        created_at: messages.created_at
+      })
       .from(messages)
+      .leftJoin(leads, eq(messages.lead_phone, leads.phone))
       .orderBy(desc(messages.created_at))
       .limit(50)
     return { messages: rows }

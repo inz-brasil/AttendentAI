@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useToast } from '../../../components/ui/toast-provider'
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog'
+import { logoutAction } from '../../actions'
 import type { CalendarStatus, GoogleCalendarOption, Setting } from '../../../lib/api'
 
 const API_BASE = '/api/backend'
@@ -242,15 +243,22 @@ export function SettingsClient({ initialSettings, initialCalendarStatus }: Setti
   return (
     <div className="space-y-8 max-w-3xl">
       {/* Header */}
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="font-mono text-xs uppercase tracking-[0.22em] text-accent">Sistema</div>
           <h2 className="mt-2 text-3xl font-semibold tracking-tight text-ink">Configurações</h2>
           <p className="mt-1.5 text-sm text-muted">Configurações globais salvas na tabela settings do banco</p>
         </div>
-        <button onClick={saveAll} disabled={saving} className="save-btn">
-          {saving ? 'Salvando…' : 'Salvar tudo'}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <form action={logoutAction}>
+            <button className="focus-ring h-9 rounded-md border border-line bg-elevated px-4 text-sm text-muted transition hover:text-ink">
+              Logout
+            </button>
+          </form>
+          <button onClick={saveAll} disabled={saving} className="save-btn whitespace-nowrap text-xs sm:text-sm">
+            {saving ? 'Salvando…' : 'Salvar tudo'}
+          </button>
+        </div>
       </div>
 
       {/* SEÇÃO: Integrações */}
@@ -615,7 +623,7 @@ export function SettingsClient({ initialSettings, initialCalendarStatus }: Setti
 /** Componente de seção */
 function Section({ title, description, children }: { title: string; description: string; children: React.ReactNode }): JSX.Element {
   return (
-    <div className="rounded-xl bg-panel border border-line p-6 shadow-panel space-y-5">
+    <div className="space-y-5 rounded-xl border border-line bg-panel p-4 shadow-panel sm:p-6">
       <div>
         <h3 className="font-semibold text-ink">{title}</h3>
         <p className="text-xs text-muted mt-0.5">{description}</p>

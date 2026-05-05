@@ -223,11 +223,11 @@ export function AgentEditorClient({
   return (
     <div className="space-y-6">
       {/* Breadcrumb */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm text-muted">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
           <Link href="/agents" className="hover:text-accent transition">Agentes</Link>
           <span>/</span>
-          <span className="text-ink">{identity.name}</span>
+          <span className="truncate text-ink">{identity.name}</span>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant={identity.is_active ? 'success' : 'muted'}>
@@ -239,7 +239,7 @@ export function AgentEditorClient({
 
       {/* Tabs */}
       <Tabs.Root defaultValue="identity">
-        <Tabs.List className="flex border-b border-line gap-1">
+        <Tabs.List className="flex gap-1 overflow-x-auto border-b border-line pb-px">
           {[
             { value: 'identity', label: 'Identidade' },
             { value: 'prompt', label: 'System Prompt' },
@@ -250,7 +250,7 @@ export function AgentEditorClient({
             <Tabs.Trigger
               key={tab.value}
               value={tab.value}
-              className="relative px-5 py-3 text-sm text-muted transition hover:text-ink data-[state=active]:text-accent data-[state=active]:after:absolute data-[state=active]:after:bottom-0 data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-accent"
+              className="relative shrink-0 px-4 py-3 text-sm text-muted transition hover:text-ink data-[state=active]:text-accent data-[state=active]:after:absolute data-[state=active]:after:bottom-0 data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-accent sm:px-5"
             >
               {tab.label}
             </Tabs.Trigger>
@@ -279,7 +279,7 @@ export function AgentEditorClient({
               />
             </FormField>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Tipo">
                 <select
                   value={identity.type}
@@ -394,7 +394,7 @@ export function AgentEditorClient({
         {/* ABA: Skills */}
         <Tabs.Content value="skills" className="mt-5">
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-muted">
                 {agentSkillList.filter(s => s.enabled).length} de {agentSkillList.length} skills habilitadas · Arraste para reordenar.
               </p>
@@ -405,7 +405,7 @@ export function AgentEditorClient({
 
             <div className="rounded-xl border border-line bg-panel p-4 shadow-panel">
               <div className="font-mono text-[11px] uppercase tracking-[0.15em] text-muted">Adicionar skill ao agente</div>
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                 <select
                   value={skillToAdd}
                   onChange={event => setSkillToAdd(event.target.value)}
@@ -445,7 +445,7 @@ export function AgentEditorClient({
                         onDragStart={() => handleDragStart(idx)}
                         onDragOver={e => handleDragOver(e, idx)}
                         onDragEnd={handleDragEnd}
-                        className={`flex items-center gap-4 px-4 py-3.5 bg-canvas transition ${dragging === idx ? 'opacity-50' : 'hover:bg-elevated'}`}
+                        className={`flex flex-wrap items-center gap-3 bg-canvas px-3 py-3.5 transition sm:flex-nowrap sm:gap-4 sm:px-4 ${dragging === idx ? 'opacity-50' : 'hover:bg-elevated'}`}
                       >
                         {/* Drag handle */}
                         <div className="cursor-grab text-muted/30 hover:text-muted transition" aria-label="Arrastar">

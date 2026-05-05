@@ -83,17 +83,20 @@ export function HomeClient({ initialData }: HomeClientProps): JSX.Element {
   const totalLeads = leads.length
   const activeLeads = leads.filter(l => l.status === 'ativo' || l.status === 'lead_quente').length
   const totalMessages = leads.reduce((sum, l) => sum + (l.total_messages ?? 0), 0)
+  const hotLeads = leads.filter(l => l.status === 'lead_quente').length
+  const convertedLeads = leads.filter(l => l.status === 'convertido').length
+  const staleLeads = leads.filter(l => l.status === 'inativo').length
   const apiOk = data.health?.status === 'ok'
 
   // Últimas 10 conversas ordenadas por atividade (leads com mais mensagens primeiro)
   const recentLeads = [...leads]
-    .sort((a, b) => (b.total_messages ?? 0) - (a.total_messages ?? 0))
+    .sort((a, b) => new Date(b.last_message_at ?? 0).getTime() - new Date(a.last_message_at ?? 0).getTime())
     .slice(0, 10)
 
   return (
     <div className="space-y-7">
       {/* Header */}
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="font-mono text-xs uppercase tracking-[0.22em] text-accent">Overview</div>
           <h2 className="mt-2 text-3xl font-semibold tracking-tight text-ink">Painel de operação</h2>
@@ -104,7 +107,7 @@ export function HomeClient({ initialData }: HomeClientProps): JSX.Element {
         <button
           onClick={refresh}
           disabled={refreshing}
-          className="focus-ring flex items-center gap-2 rounded-md border border-line bg-elevated px-4 h-9 text-sm text-muted transition hover:text-ink hover:border-muted disabled:opacity-50"
+          className="focus-ring flex h-8 w-fit items-center gap-1.5 rounded-md border border-line bg-elevated px-2.5 text-[11px] text-muted transition hover:border-muted hover:text-ink disabled:opacity-50 sm:h-9 sm:gap-2 sm:px-4 sm:text-sm"
           aria-label="Atualizar dados"
         >
           <svg
@@ -167,6 +170,12 @@ export function HomeClient({ initialData }: HomeClientProps): JSX.Element {
             </svg>
           }
         />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MiniMetric label="Quentes" value={hotLeads} />
+        <MiniMetric label="Convertidos" value={convertedLeads} />
+        <MiniMetric label="Inativos 48h+" value={staleLeads} />
       </div>
 
       {/* Status bar + feed */}
@@ -310,6 +319,15 @@ function StatusRow({ label, ok, detail }: { label: string; ok: boolean; detail: 
         <span className="font-mono text-xs text-muted">{detail}</span>
         <Badge variant={ok ? 'success' : 'danger'}>{ok ? 'ok' : 'erro'}</Badge>
       </div>
+    </div>
+  )
+}
+
+function MiniMetric({ label, value }: { label: string; value: number }): JSX.Element {
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-line bg-panel px-4 py-3 shadow-panel">
+      <span className="text-sm text-muted">{label}</span>
+      <span className="font-mono text-lg font-semibold text-ink tabular-nums">{value}</span>
     </div>
   )
 }

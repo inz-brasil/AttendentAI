@@ -7,6 +7,8 @@ import { BaseAgent, type AgentInput, type AgentRunMetadata } from './base-agent'
 const memorySystemPrompt = `Você resume uma conversa de atendimento para uma nota operacional curta.
 Registre apenas fatos explícitos da conversa.
 Não invente dados, interesses, prazos ou próximos passos.
+Separe em seções Markdown: Dados confirmados, Sinais de interesse/dor, Objeções, Próximo passo recomendado e Perguntas úteis.
+Em Perguntas úteis, sugira no máximo 3 perguntas naturais para descobrir empresa, nicho, cidade, decisor, dor, objeção ou interesse sem deixar o atendimento chato.
 Retorne apenas texto Markdown curto, sem frontmatter.`
 
 export interface MemoryNoteInput extends AgentInput {
@@ -121,11 +123,16 @@ tags: ${JSON.stringify(tags)}
 - **Dor relatada:** (não informado)
 - **Objeção principal:** (não informado)
 - **Decisor:** (não informado)
+- **Empresa/nicho:** (não informado)
 
 ## Estágio
 - **Status atual:** ${status}
-- **Próximo passo:** (não definido)
+- **Próximo passo:** ${status === 'lead_quente' ? 'Reunião marcada ou em confirmação; revisar notas para contexto comercial.' : '(não definido)'}
 - **Data do próximo contato:** (não definida)
+
+## Lacunas para qualificação
+- Empresa/nicho, cidade, interesse principal, dor relatada, objeção, decisor e email só devem ser preenchidos quando forem informados explicitamente.
+- O atendente deve coletar essas informações aos poucos, quando fizer sentido, sem travar o agendamento se o lead já estiver pronto.
 `
 
     await this.vault.write(phone, 'memoria.md', content)

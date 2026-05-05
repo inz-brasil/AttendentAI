@@ -14,6 +14,7 @@ export interface Lead {
   status: string | null
   tags: string[] | null
   total_messages: number | null
+  last_message_at?: string | null
 }
 
 export interface Agent {
@@ -63,6 +64,7 @@ export interface AgentMetrics {
 export interface ConversationMessage {
   id: string
   lead_phone: string | null
+  lead_name?: string | null
   role: 'user' | 'assistant' | null
   content: string | null
   intent: string | null

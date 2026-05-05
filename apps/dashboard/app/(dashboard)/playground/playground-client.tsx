@@ -130,19 +130,19 @@ export function PlaygroundClient({ agents, leads }: PlaygroundClientProps): JSX.
   const selectedAgentObj = agents.find(a => a.id === selectedAgent)
 
   return (
-    <div className="flex flex-col h-[calc(100vh-120px)] gap-0">
+    <div className="flex min-h-[calc(100vh-120px)] flex-col gap-0 lg:h-[calc(100vh-120px)]">
       {/* Header / controles */}
-      <div className="flex items-center gap-3 pb-4 flex-wrap">
+      <div className="flex flex-col gap-3 pb-4 lg:flex-row lg:items-center">
         <div>
           <div className="font-mono text-xs uppercase tracking-[0.22em] text-accent">Testes</div>
           <h2 className="mt-1 text-2xl font-semibold tracking-tight text-ink">Playground</h2>
         </div>
-        <div className="flex items-center gap-2 ml-auto flex-wrap">
+        <div className="flex w-full flex-wrap items-center gap-2 lg:ml-auto lg:w-auto">
           {/* Seleção de agente */}
           <select
             value={selectedAgent}
             onChange={e => setSelectedAgent(e.target.value)}
-            className="h-8 rounded-md border border-line bg-panel px-3 text-xs text-ink outline-none focus:border-cyan transition"
+            className="h-8 min-w-0 flex-1 rounded-md border border-line bg-panel px-3 text-xs text-ink outline-none transition focus:border-cyan lg:flex-none"
           >
             {agents.map(a => (
               <option key={a.id} value={a.id}>{a.name} ({a.model})</option>
@@ -168,9 +168,9 @@ export function PlaygroundClient({ agents, leads }: PlaygroundClientProps): JSX.
         </div>
       </div>
 
-      <div className={`flex gap-4 flex-1 min-h-0 ${showDebug ? 'grid grid-cols-[1fr_320px]' : ''}`}>
+      <div className={`grid flex-1 gap-4 ${showDebug ? 'lg:grid-cols-[minmax(0,1fr)_320px]' : ''}`}>
         {/* Chat principal */}
-        <div className="flex flex-col rounded-xl border border-line bg-panel shadow-panel overflow-hidden min-h-0">
+        <div className="flex min-h-[68vh] flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-panel lg:min-h-0">
           {/* Barra de contexto */}
           <div className="flex items-center gap-3 px-4 py-2.5 border-b border-line bg-panel/80 flex-wrap">
             <div className="flex items-center gap-2">
@@ -205,7 +205,7 @@ export function PlaygroundClient({ agents, leads }: PlaygroundClientProps): JSX.
               </select>
             )}
 
-            <span className="ml-auto font-mono text-[10px] text-muted/60">
+            <span className="w-full truncate font-mono text-[10px] text-muted/60 sm:ml-auto sm:w-auto">
               → {activePhone}
             </span>
           </div>
@@ -244,7 +244,7 @@ export function PlaygroundClient({ agents, leads }: PlaygroundClientProps): JSX.
                 </div>
 
                 {/* Bolha */}
-                <div className={`flex flex-col max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                <div className={`flex max-w-[86%] flex-col sm:max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                   <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
                     msg.role === 'user'
                       ? 'bg-accent text-canvas rounded-tr-sm'
@@ -306,7 +306,7 @@ export function PlaygroundClient({ agents, leads }: PlaygroundClientProps): JSX.
 
         {/* Debug panel */}
         {showDebug && (
-          <div className="flex flex-col rounded-xl border border-line bg-panel shadow-panel overflow-hidden min-h-0">
+          <div className="flex max-h-[70vh] min-h-[360px] flex-col overflow-hidden rounded-xl border border-line bg-panel shadow-panel lg:max-h-none lg:min-h-0">
             <div className="px-4 py-3 border-b border-line">
               <span className="font-mono text-[11px] uppercase tracking-[0.15em] text-accent">Debug</span>
             </div>

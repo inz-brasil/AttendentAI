@@ -5,7 +5,6 @@ import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import * as Dialog from '@radix-ui/react-dialog'
-import { logoutAction } from '../app/actions'
 
 type NavIconProps = {
   className?: string
@@ -269,11 +268,6 @@ export function AppShell({ children }: { children: ReactNode }): JSX.Element {
                 <h1 className="truncate text-lg font-semibold tracking-tight">AttendentAI</h1>
               </div>
             </div>
-            <form action={logoutAction}>
-              <button className="focus-ring h-9 rounded-md bg-accent px-3 text-sm font-semibold text-canvas transition hover:bg-[#e7ef58] sm:px-4">
-                Logout
-              </button>
-            </form>
           </div>
         </header>
 

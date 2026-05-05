@@ -13,6 +13,7 @@ const PAGE_SIZE = 20
 
 const STATUS_OPTIONS = [
   { value: '__all__', label: 'Todos os status' },
+  { value: '__admin__', label: 'Admin/debug' },
   { value: 'novo', label: 'Novo' },
   { value: 'ativo', label: 'Ativo' },
   { value: 'lead_quente', label: 'Lead quente' },
@@ -20,7 +21,7 @@ const STATUS_OPTIONS = [
   { value: 'inativo', label: 'Inativo' }
 ]
 
-type StatusFilter = '__all__' | 'novo' | 'ativo' | 'lead_quente' | 'convertido' | 'inativo'
+type StatusFilter = '__all__' | '__admin__' | 'novo' | 'ativo' | 'lead_quente' | 'convertido' | 'inativo'
 
 function statusVariant(status: string | null): 'success' | 'accent' | 'danger' | 'muted' | 'cyan' {
   switch (status) {
@@ -80,7 +81,9 @@ export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Ele
         l.phone.includes(q) || (l.name ?? '').toLowerCase().includes(q)
       )
     }
-    if (statusFilter !== '__all__') {
+    if (statusFilter === '__admin__') {
+      result = result.filter(l => (l.tags ?? []).includes('admin'))
+    } else if (statusFilter !== '__all__') {
       result = result.filter(l => (l.status ?? 'novo') === statusFilter)
     }
     return result
@@ -179,7 +182,7 @@ export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Ele
         <Select.Root value={statusFilter} onValueChange={handleStatusFilter}>
           <Select.Trigger
             id="status-filter"
-            className="focus-ring flex h-9 items-center justify-between gap-2 rounded-lg border border-line bg-panel px-3 text-sm text-ink w-48 hover:border-muted transition"
+            className="focus-ring flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-line bg-panel px-3 text-sm text-ink transition hover:border-muted sm:w-48"
           >
             <Select.Value />
             <Select.Icon>

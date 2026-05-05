@@ -286,18 +286,18 @@ export function VaultClient({ initialLeads, globalFiles: globalFilesProp }: Vaul
           ) : openFile && (
             <>
               {/* Toolbar do editor */}
-              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-line bg-panel/80">
-                <div className="flex items-center gap-2 min-w-0">
+              <div className="flex flex-col gap-3 border-b border-line bg-panel/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span className="font-mono text-xs text-muted">
                     {openFile.phone === null ? '_global' : openFile.phone}
                   </span>
                   <span className="text-muted/30">/</span>
-                  <span className="font-mono text-xs text-ink">{openFile.filename}</span>
+                  <span className="min-w-0 break-all font-mono text-xs text-ink">{openFile.filename}</span>
                   {openFile.dirty && (
                     <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" title="Não salvo" />
                   )}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
                   <button
                     onClick={downloadFile}
                     className="focus-ring h-7 rounded-md border border-line bg-elevated px-3 text-xs text-muted hover:text-ink transition inline-flex items-center gap-1.5"

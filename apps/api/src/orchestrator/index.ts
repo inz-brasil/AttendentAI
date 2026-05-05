@@ -17,6 +17,7 @@ import {
   loadMemory,
   saveConversationSummary,
   saveMessage,
+  setLeadStatus,
   updateLead,
   type ContactInfo,
   type LeadUpdateInput
@@ -316,6 +317,29 @@ export class QueryEngine {
           recentMessages: refreshedMemory.recent_messages
         })
       : null
+    if (schedulingResult?.status === 'created') {
+      await setLeadStatus(payload.phone, 'lead_quente')
+      await this.memoryAgent.updateLeadMemory(payload.phone, {
+        phone: payload.phone,
+        name: refreshedLead?.name ?? payload.name,
+        email: refreshedLead?.email ?? null,
+        city: refreshedLead?.city ?? null,
+        status: 'lead_quente',
+        tags: refreshedLead?.tags ?? null
+      })
+      await recordTrace({
+        phone: payload.phone,
+        runId,
+        agent: 'scheduling-agent',
+        eventType: 'lead_updated',
+        title: 'Lead marcado como quente',
+        data: {
+          reason: 'calendar_event_created',
+          event_id: schedulingResult.event_id,
+          scheduled_for: schedulingResult.scheduled_for
+        }
+      })
+    }
     const mcpTools = mcpEnabled
       ? this.mcpRegistry.formatForOpenAI((await this.mcpRegistry.getToolsForAgent('responder'))
           .filter((tool) => tool.serverName !== 'Google Calendar'))
@@ -713,7 +737,7 @@ export class QueryEngine {
   ): string {
     const previous = recentMessages
       .slice(-6)
-      .map((message) => `${message.role === 'assistant' ? 'Assistente' : 'Lead'}: ${message.content ?? ''}`)
+      .map((message) => `${message.role === 'assistant' ? 'Assistente' : 'Lead'}:\n${message.content ?? ''}`)
       .filter((line) => line.trim().length > 0)
 
     const currentMessage = payload.message.trim()
@@ -727,7 +751,7 @@ export class QueryEngine {
       `Estado atual: ${stage}. Lead identificado como ${knownName}.`,
       `Última mensagem do lead: "${truncateTraceText(currentMessage, 220)}".`,
       sourceHint,
-      previous.length > 0 ? `Contexto recente:\n${previous.join('\n')}` : 'Ainda não há histórico anterior relevante.',
+      previous.length > 0 ? `Contexto recente:\n\n${previous.join('\n\n')}` : 'Ainda não há histórico anterior relevante.',
       'Próximo passo: responder de forma direta, evitar redundância e fazer no máximo uma pergunta objetiva.'
     ].join('\n')
   }

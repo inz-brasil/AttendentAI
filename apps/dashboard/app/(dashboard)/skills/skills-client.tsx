@@ -74,7 +74,7 @@ export function SkillsClient({ initialSkills }: SkillsClientProps): JSX.Element 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="font-mono text-xs uppercase tracking-[0.22em] text-accent">Configuração</div>
           <h2 className="mt-2 text-3xl font-semibold tracking-tight text-ink">Skills</h2>
@@ -84,7 +84,7 @@ export function SkillsClient({ initialSkills }: SkillsClientProps): JSX.Element 
         </div>
         <Link
           href="/skills/new"
-          className="focus-ring flex items-center gap-2 h-9 rounded-md bg-accent px-4 text-sm font-semibold text-canvas hover:bg-[#e7ef58] transition"
+          className="focus-ring flex h-9 w-fit items-center gap-2 rounded-md bg-accent px-4 text-sm font-semibold text-canvas transition hover:bg-[#e7ef58]"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <path d="M12 5v14M5 12h14"/>
@@ -167,7 +167,7 @@ export function SkillsClient({ initialSkills }: SkillsClientProps): JSX.Element 
                     </button>
                   </td>
                   <td className="px-4 py-3.5">
-                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition">
+                    <div className="flex flex-col items-end gap-2 opacity-100 transition sm:flex-row sm:opacity-0 sm:group-hover:opacity-100">
                       <Link
                         href={`/skills/${encodeURIComponent(skill.id)}`}
                         className="focus-ring rounded-md border border-line bg-elevated px-3 h-7 inline-flex items-center text-xs text-ink hover:border-muted transition"

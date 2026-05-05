@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { env } from '../config/env'
 import { db } from '../db/client'
-import { conversations, leadMemoryMeta, leads, messages } from '../db/schema'
+import { conversations, leadMemoryMeta, leads, messages, settings, type LeadStatus } from '../db/schema'
 import { VaultManager } from '../vault-manager/manager'
 
 const leadParamsSchema = z.object({ phone: z.string().min(1) })
@@ -18,6 +18,38 @@ const leadBodySchema = z.object({
   custom_data: z.record(z.unknown()).optional(),
   vault_path: z.string().nullable().optional()
 })
+const inactiveAfterMs = 48 * 60 * 60 * 1000
+
+function deriveVisibleStatus(status: LeadStatus | null, lastMessageAt: Date | null): LeadStatus {
+  if (status === 'convertido' || status === 'lead_quente') {
+    return status
+  }
+
+  if (lastMessageAt && Date.now() - lastMessageAt.getTime() > inactiveAfterMs) {
+    return 'inativo'
+  }
+
+  return status ?? 'novo'
+}
+
+function parseContactList(raw: string): string[] {
+  const trimmed = raw.trim()
+  if (!trimmed) return []
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    }
+  } catch {
+    // Também aceita lista simples por vírgula, linha ou ponto e vírgula.
+  }
+  return trimmed.split(/[\n,;]/).map((item) => item.trim()).filter(Boolean)
+}
+
+async function loadAdminPhones(): Promise<Set<string>> {
+  const [setting] = await db.select().from(settings).where(eq(settings.key, 'internal_assistant_contacts')).limit(1)
+  return new Set(parseContactList(setting?.value ?? ''))
+}
 
 /**
  * Registra endpoints de /api/leads.
@@ -27,7 +59,15 @@ const leadBodySchema = z.object({
 export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
   const vault = new VaultManager(env.VAULT_PATH)
 
-  app.get('/api/leads', async () => db.select().from(leads))
+  app.get('/api/leads', async () => {
+    const rows = await db.select().from(leads)
+    const adminPhones = await loadAdminPhones()
+    return rows.map((lead) => ({
+      ...lead,
+      status: deriveVisibleStatus(lead.status, lead.last_message_at),
+      tags: adminPhones.has(lead.phone) ? [...new Set([...(lead.tags ?? []), 'admin'])] : lead.tags
+    }))
+  })
 
   app.get('/api/leads/:phone/memory-stats', async (request) => {
     const { phone } = leadParamsSchema.parse(request.params)
@@ -49,7 +89,9 @@ export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/leads/:phone', async (request, reply) => {
     const params = leadParamsSchema.parse(request.params)
     const [lead] = await db.select().from(leads).where(eq(leads.phone, params.phone)).limit(1)
-    return lead ?? reply.code(404).send({ error: 'Lead not found', code: 'LEAD_NOT_FOUND' })
+    return lead
+      ? { ...lead, status: deriveVisibleStatus(lead.status, lead.last_message_at) }
+      : reply.code(404).send({ error: 'Lead not found', code: 'LEAD_NOT_FOUND' })
   })
 
   app.post('/api/leads', async (request, reply) => {

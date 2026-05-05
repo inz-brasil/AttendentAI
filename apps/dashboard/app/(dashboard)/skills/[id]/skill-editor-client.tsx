@@ -167,14 +167,14 @@ export function SkillEditorClient({ initialSkill, isNew }: SkillEditorClientProp
   return (
     <div className="space-y-5">
       {/* Breadcrumb + ações */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2 text-sm text-muted">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
           <Link href="/skills" className="hover:text-accent transition">Skills</Link>
           <span>/</span>
-          <span className="text-ink">{meta.name}</span>
+          <span className="truncate text-ink">{meta.name}</span>
           {isNew && <Badge variant="accent">Nova</Badge>}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setShowHistory(prev => !prev)}
             className="focus-ring h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted hover:text-ink transition"
@@ -187,7 +187,7 @@ export function SkillEditorClient({ initialSkill, isNew }: SkillEditorClientProp
           >
             Testar no Playground
           </Link>
-          <button onClick={save} disabled={saving} className="save-btn">
+          <button onClick={save} disabled={saving} className="save-btn whitespace-nowrap text-xs sm:text-sm">
             {saving ? 'Salvando…' : isNew ? 'Criar skill' : 'Salvar'}
           </button>
         </div>
@@ -292,7 +292,7 @@ export function SkillEditorClient({ initialSkill, isNew }: SkillEditorClientProp
         {/* Editor + Preview */}
         <div className="space-y-3">
           {/* Toolbar do editor */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-1 rounded-lg bg-panel border border-line p-1">
               <button
                 onClick={() => setShowPreview(false)}

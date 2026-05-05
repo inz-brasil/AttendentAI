@@ -81,7 +81,7 @@ function buildInitialFeed(messages: ConversationMessage[]): ConvEntry[] {
 
     return {
       phone,
-      name: null,
+      name: latest?.lead_name ?? null,
       lastMessage: lastUser?.content ?? latest?.content ?? '',
       lastResponse: lastAssistant?.content ?? '',
       agent: latest?.agent_used ?? 'responder',
@@ -206,7 +206,7 @@ export function ConversationsClient({ initialMessages }: ConversationsClientProp
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="font-mono text-xs uppercase tracking-[0.22em] text-accent">Tempo real</div>
           <h2 className="mt-2 text-3xl font-semibold tracking-tight text-ink">Conversas</h2>
@@ -223,7 +223,7 @@ export function ConversationsClient({ initialMessages }: ConversationsClientProp
       </div>
 
       {/* Filtros */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <select
           value={filterAgent}
           onChange={e => setFilterAgent(e.target.value)}
@@ -236,13 +236,13 @@ export function ConversationsClient({ initialMessages }: ConversationsClientProp
           type="text"
           value={filterIntent}
           onChange={e => setFilterIntent(e.target.value)}
-          placeholder="Filtrar intenção…"
-          className="h-8 rounded-md border border-line bg-panel px-3 text-xs text-ink placeholder:text-muted outline-none focus:border-cyan transition"
+          placeholder="Ex: sales, scheduling, internal"
+          className="h-8 w-full rounded-md border border-line bg-panel px-3 text-xs text-ink placeholder:text-muted outline-none transition focus:border-cyan sm:w-56"
         />
         {(filterAgent || filterIntent) && (
           <button
             onClick={() => { setFilterAgent(''); setFilterIntent('') }}
-            className="h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted hover:text-ink transition"
+            className="h-8 w-full rounded-md border border-line bg-elevated px-3 text-xs text-muted transition hover:text-ink sm:w-auto"
           >
             Limpar
           </button>
@@ -268,7 +268,7 @@ export function ConversationsClient({ initialMessages }: ConversationsClientProp
                 {/* Linha do lead */}
                 <button
                   onClick={() => expandLead(entry.phone)}
-                  className={`w-full flex items-center gap-4 px-4 py-3.5 text-left transition ${
+                  className={`w-full flex items-start gap-3 px-3 py-3.5 text-left transition sm:items-center sm:gap-4 sm:px-4 ${
                     expandedPhone === entry.phone ? 'bg-elevated' : 'bg-canvas hover:bg-elevated/50'
                   } ${entry.isNew ? 'animate-pulse-once' : ''}`}
                 >
@@ -281,9 +281,9 @@ export function ConversationsClient({ initialMessages }: ConversationsClientProp
 
                   {/* Info */}
                   <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-medium text-ink truncate">{entry.name ?? entry.phone}</span>
-                      <span className="font-mono text-[10px] text-muted/60 truncate">{entry.phone}</span>
+                    <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
+                      <span className="truncate text-sm font-medium text-ink">{entry.name ?? 'Sem nome'}</span>
+                      <span className="truncate font-mono text-[10px] text-muted/60">{entry.phone}</span>
                     </div>
                     <p className="mt-0.5 text-xs text-muted truncate max-w-lg">
                       {entry.lastMessage || <span className="italic text-muted/50">Sem mensagens recentes</span>}
@@ -291,7 +291,7 @@ export function ConversationsClient({ initialMessages }: ConversationsClientProp
                   </div>
 
                   {/* Meta */}
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex max-w-[34%] shrink-0 flex-wrap items-center justify-end gap-1.5 sm:max-w-none sm:gap-2">
                     {entry.intent && <Badge variant="muted">{entry.intent}</Badge>}
                     <Badge variant={AGENT_BADGE[entry.agent] ?? 'muted'}>{entry.agent}</Badge>
                     <span className="font-mono text-[10px] text-muted tabular-nums">{relTime(entry.timestamp)}</span>

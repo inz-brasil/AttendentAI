@@ -137,7 +137,7 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
 
       {/* Grid de cards */}
       {agents.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2">
           {agents.map(agent => (
             <div key={agent.id} className="group rounded-xl bg-panel border border-line p-5 shadow-panel hover:border-line/80 transition">
               {/* Cabeçalho */}
@@ -187,7 +187,7 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
               </div>
 
               {/* Dados técnicos */}
-              <div className="mt-3 grid grid-cols-3 gap-3 border-t border-line pt-3">
+              <div className="mt-3 grid grid-cols-1 gap-3 border-t border-line pt-3 sm:grid-cols-3">
                 <div>
                   <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted/60 mb-1">Tipo</div>
                   <Badge variant={typeBadge(agent.type)}>
