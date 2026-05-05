@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import pino from 'pino'
 import { ClassifierAgent } from '../agents/classifier'
 import { MCP_ENABLED } from '../config/constants'
+import { env } from '../config/env'
 import { IdentifierAgent, type LeadFieldsToUpdate } from '../agents/identifier'
 import { InternalAssistantAgent } from '../agents/internal-assistant'
 import { MemoryAgent } from '../agents/memory-agent'
@@ -281,9 +282,23 @@ export class QueryEngine {
       }
     })
 
-    const mcpTools = MCP_ENABLED
+    const mcpEnabled = await this.isMcpEnabled()
+    const mcpTools = mcpEnabled
       ? this.mcpRegistry.formatForOpenAI(await this.mcpRegistry.getToolsForAgent('responder'))
       : []
+    if (mcpEnabled) {
+      await recordTrace({
+        phone: payload.phone,
+        runId,
+        agent: 'mcp-registry',
+        eventType: 'mcp_tools_loaded',
+        title: 'Tools MCP carregadas',
+        data: {
+          tools_count: mcpTools.length,
+          tool_names: mcpTools.map((tool) => tool.function.name)
+        }
+      })
+    }
 
     const response = await this.responder.run({
       phone: payload.phone,
@@ -291,9 +306,12 @@ export class QueryEngine {
       system_prompt: systemPrompt,
       message: payload.message,
       lead_name: refreshedLead?.name ?? payload.name,
+      model: await this.getResponderModel(),
       classification,
       tools_enabled: await this.isHttpToolEnabled(),
-      mcp_tools: mcpTools
+      mcp_enabled: mcpEnabled,
+      mcp_tools: mcpTools,
+      recent_messages: refreshedMemory.recent_messages
     })
     const guardedText = this.normalizeWhatsAppResponse(response.text)
     if (guardedText !== response.text) {
@@ -629,6 +647,20 @@ export class QueryEngine {
 
   private async isHttpToolEnabled(): Promise<boolean> {
     return (await this.getSettingValue('tool_http_enabled')).trim().toLowerCase() === 'true'
+  }
+
+  private async isMcpEnabled(): Promise<boolean> {
+    return MCP_ENABLED || (await this.getSettingValue('mcp_enabled')).trim().toLowerCase() === 'true'
+  }
+
+  private async getResponderModel(): Promise<string> {
+    const configuredModel = (await this.getSettingValue('model_responder')).trim()
+    if (configuredModel) {
+      return configuredModel
+    }
+
+    const [agent] = await db.select({ model: agents.model }).from(agents).where(eq(agents.id, 'responder')).limit(1)
+    return agent?.model || env.MODEL_RESPONDER || 'gpt-4o-mini'
   }
 
   private parseContactList(raw: string): string[] {

@@ -83,8 +83,9 @@ export abstract class BaseAgent<TInput extends AgentInput, TOutput> {
 
       try {
         for (let toolRound = 0; toolRound <= MAX_TOOL_ITERATIONS; toolRound += 1) {
+          const model = this.resolveModel(input)
           const response = await openai.chat.completions.create({
-            model: this.model,
+            model,
             messages,
             max_tokens: this.maxTokens,
             temperature: this.temperature,
@@ -132,7 +133,7 @@ export abstract class BaseAgent<TInput extends AgentInput, TOutput> {
           await this.saveToolTrace(input, toolTrace)
           log.info({
             agent: this.name,
-            model: this.model,
+            model,
             tokens_used: tokensUsed,
             duration_ms: durationMs,
             phone: typeof input.phone === 'string' ? input.phone : undefined,
@@ -142,7 +143,7 @@ export abstract class BaseAgent<TInput extends AgentInput, TOutput> {
           return this.parseOutput(text, {
             tokens_used: tokensUsed,
             duration_ms: durationMs,
-            model: this.model,
+            model,
             tool_trace: toolTrace
           })
         }
@@ -152,7 +153,7 @@ export abstract class BaseAgent<TInput extends AgentInput, TOutput> {
         lastError = error instanceof Error ? error : new Error('Unknown OpenAI error')
         log.info({
           agent: this.name,
-          model: this.model,
+          model: this.resolveModel(input),
           tokens_used: tokensUsed,
           duration_ms: Date.now() - start,
           phone: typeof input.phone === 'string' ? input.phone : undefined
@@ -208,6 +209,15 @@ export abstract class BaseAgent<TInput extends AgentInput, TOutput> {
    * @returns Saída do agente.
    */
   protected abstract parseOutput(text: string, metadata: AgentRunMetadata): TOutput
+
+  /**
+   * Resolve modelo de execução, permitindo override controlado por input.
+   * @param input Entrada contextual do agente.
+   * @returns Modelo que será usado na chamada LLM.
+   */
+  protected resolveModel(input: TInput): string {
+    return typeof input.model === 'string' && input.model.trim() ? input.model : this.model
+  }
 
   private async saveTokenUsage(totalTokens: number, promptTokens: number, completionTokens: number): Promise<void> {
     await db.insert(tokenUsage).values({
