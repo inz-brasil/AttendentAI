@@ -214,6 +214,7 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
     return this.schedulingAgent.run({
       phone: lead.phone,
       run_id: typeof input.run_id === 'string' ? input.run_id : crypto.randomUUID(),
+      caller_type: 'internal',
       message: instruction,
       lead_name: lead.name ?? lead.phone,
       lead_email: lead.email,

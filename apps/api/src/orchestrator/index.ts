@@ -617,6 +617,7 @@ export class QueryEngine {
     const result = await this.schedulingAgent.run({
       phone: input.phone,
       run_id: input.runId,
+      caller_type: 'customer',
       message: input.message,
       lead_name: input.leadName,
       lead_email: input.leadEmail,

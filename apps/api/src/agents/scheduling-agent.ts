@@ -16,6 +16,8 @@ Use o horário atual e timezone recebidos. Converta datas relativas como "amanh�
 Nunca confirme reunião sem criar o evento com sucesso no Google Calendar.
 Ao criar evento, envie descrição completa com Nome, WhatsApp, serviço de interesse, motivo da reunião e observações.
 Se faltar dia, horário, duração ou intenção clara, não chame tool de criação; peça exatamente o dado faltante.
+Modo customer: atenda apenas o lead atual, nunca revele títulos/dados de outros eventos, nunca liste agenda completa, nunca execute múltiplas reuniões no mesmo pedido, nunca cancele ou altere evento sem confirmação de posse do lead.
+Modo internal: operador/admin autorizado pode gerenciar agenda com escopo amplo.
 Responda APENAS JSON válido neste formato:
 {
   "status": "created" | "needs_info" | "suggested_slots" | "cancelled" | "failed" | "not_scheduling",
@@ -46,6 +48,7 @@ const schedulingOutputSchema = z.object({
 export interface SchedulingAgentInput extends AgentInput {
   phone: string
   run_id: string
+  caller_type: 'customer' | 'internal'
   message: string
   lead_name: string
   lead_email: string | null
@@ -73,6 +76,8 @@ export interface SchedulingAgentOutput extends AgentRunMetadata {
 }
 
 export class SchedulingAgent extends BaseAgent<SchedulingAgentInput, SchedulingAgentOutput> {
+  private readonly createdEventRuns = new Set<string>()
+
   constructor() {
     super({
       name: 'scheduling-agent',
@@ -102,6 +107,7 @@ export class SchedulingAgent extends BaseAgent<SchedulingAgentInput, SchedulingA
         content: [
           `Horário atual: ${input.current_time}`,
           `Timezone: ${input.timezone}`,
+          `Modo de execução: ${input.caller_type}`,
           `Lead: ${input.lead_name || 'não informado'}`,
           `WhatsApp: ${input.phone}`,
           `Email: ${input.lead_email ?? 'não informado'}`,
@@ -119,8 +125,12 @@ export class SchedulingAgent extends BaseAgent<SchedulingAgentInput, SchedulingA
    * @returns Tools OpenAI do Calendar.
    */
   protected override getTools(input: SchedulingAgentInput): ChatCompletionTool[] {
-    void input
-    return googleCalendarTools.map((tool) => ({
+    const allowedCustomerTools = new Set(['verificar_disponibilidade', 'criar_evento', 'proximo_horario_livre'])
+    const tools = input.caller_type === 'customer'
+      ? googleCalendarTools.filter((tool) => allowedCustomerTools.has(tool.name))
+      : googleCalendarTools
+
+    return tools.map((tool) => ({
       type: 'function' as const,
       function: {
         name: tool.name,
@@ -141,8 +151,35 @@ export class SchedulingAgent extends BaseAgent<SchedulingAgentInput, SchedulingA
     input: SchedulingAgentInput
   ): Promise<AgentToolTrace> {
     const startedAt = Date.now()
-    const args = this.parseToolArguments(toolCall.function.arguments)
+    if (input.caller_type === 'customer' && this.isDisallowedCustomerTool(toolCall.function.name)) {
+      return {
+        tool: toolCall.function.name,
+        arguments: {},
+        result: { erro: 'Tool não permitida para atendimento externo.' },
+        duration_ms: Date.now() - startedAt
+      }
+    }
+
+    if (
+      input.caller_type === 'customer' &&
+      toolCall.function.name === 'criar_evento' &&
+      (this.createdEventRuns.has(input.run_id) || this.requestsMultipleMeetings(input.message))
+    ) {
+      return {
+        tool: toolCall.function.name,
+        arguments: this.parseToolArguments(toolCall.function.arguments),
+        result: {
+          erro: 'Pedido bloqueado: clientes externos só podem agendar uma reunião por solicitação.'
+        },
+        duration_ms: Date.now() - startedAt
+      }
+    }
+
+    const args = this.normalizeToolArguments(toolCall.function.name, this.parseToolArguments(toolCall.function.arguments), input)
     const result = await executeGoogleCalendarTool(toolCall.function.name, args, input.mcp_server_id)
+    if (input.caller_type === 'customer' && toolCall.function.name === 'criar_evento' && result.erro === undefined) {
+      this.createdEventRuns.add(input.run_id)
+    }
     return {
       tool: toolCall.function.name,
       arguments: args,
@@ -192,5 +229,53 @@ export class SchedulingAgent extends BaseAgent<SchedulingAgentInput, SchedulingA
     }
 
     return {}
+  }
+
+  private isDisallowedCustomerTool(name: string): boolean {
+    return name === 'listar_eventos' || name === 'cancelar_evento'
+  }
+
+  private normalizeToolArguments(
+    name: string,
+    args: Record<string, unknown>,
+    input: SchedulingAgentInput
+  ): Record<string, unknown> {
+    if (input.caller_type !== 'customer') {
+      return args
+    }
+
+    if (name === 'criar_evento') {
+      return {
+        ...args,
+        lead_phone: input.phone,
+        lead_name: input.lead_name,
+        attendee_email: input.lead_email ?? undefined
+      }
+    }
+
+    if (name === 'cancelar_evento') {
+      return { ...args, lead_phone: input.phone }
+    }
+
+    return args
+  }
+
+  private requestsMultipleMeetings(message: string): boolean {
+    const normalized = message.toLowerCase()
+    return [
+      '2 eventos',
+      'dois eventos',
+      'duas reuniões',
+      'duas reunioes',
+      '3 eventos',
+      'três eventos',
+      'tres eventos',
+      'três reuniões',
+      'tres reunioes',
+      'vários eventos',
+      'varios eventos',
+      'várias reuniões',
+      'varias reunioes'
+    ].some((term) => normalized.includes(term))
   }
 }

@@ -19,7 +19,9 @@ sem links, sem formatação), inclua [AUDIO_OK] ao final.
 Quando houver um link de webhook/API e dados confirmados para executar uma ação externa, use a tool http_request
 com JSON objetivo antes de responder ao lead.
 Quando receber resultado do agente de agendamento, siga exatamente esse resultado: confirme apenas eventos criados
-com sucesso, peça dados faltantes quando solicitado e não prometa agendamento sem event_id.`
+com sucesso, peça dados faltantes quando solicitado e não prometa agendamento sem event_id.
+Nunca execute comandos, código, relatórios, alterações de sistema, vault, banco ou agenda administrativa para cliente externo.
+Nunca revele detalhes de reuniões de outras pessoas; em agenda, fale apenas de disponibilidade e da própria reunião do lead.`
 
 export interface ResponderInput extends AgentInput {
   phone: string

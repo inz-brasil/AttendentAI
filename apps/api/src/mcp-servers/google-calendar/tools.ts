@@ -61,7 +61,8 @@ export const googleCalendarTools = [
     inputSchema: {
       type: 'object',
       properties: {
-        event_id: { type: 'string' }
+        event_id: { type: 'string' },
+        lead_phone: { type: 'string', description: 'Obrigatório para cancelamento restrito ao próprio lead.' }
       },
       required: ['event_id']
     }
@@ -95,7 +96,7 @@ const createEventSchema = z.object({
   meeting_reason: z.string().optional(),
   notes: z.string().optional()
 })
-const cancelEventSchema = z.object({ event_id: z.string().min(1) })
+const restrictedCancelEventSchema = z.object({ event_id: z.string().min(1), lead_phone: z.string().optional() })
 const nextSlotSchema = z.object({ duration_minutes: z.coerce.number().int().positive(), after_date: z.string().optional() })
 const freeSlotsSchema = z.array(z.string())
 
@@ -217,6 +218,13 @@ export async function criarEvento(args: unknown, mcpServerId: string): Promise<C
     summary: parsed.title,
     start: { dateTime: start.toISOString() },
     end: { dateTime: end.toISOString() },
+    extendedProperties: {
+      private: {
+        attendentai_source: 'whatsapp',
+        lead_phone: parsed.lead_phone ?? '',
+        lead_name: parsed.lead_name ?? ''
+      }
+    },
     description: parsed.description ?? renderEventDescription(eventDescriptionTemplate, {
       lead_name: parsed.lead_name,
       lead_phone: parsed.lead_phone,
@@ -251,9 +259,20 @@ export async function criarEvento(args: unknown, mcpServerId: string): Promise<C
  * @returns Status do cancelamento.
  */
 export async function cancelarEvento(args: unknown, mcpServerId: string): Promise<CalendarToolResult> {
-  const parsed = cancelEventSchema.parse(args)
+  const parsed = restrictedCancelEventSchema.parse(args)
   const calendar = await calendarClient(mcpServerId)
   const { calendarId } = await getGoogleCalendarSettings()
+  if (parsed.lead_phone) {
+    const event = await calendar.events.get({ calendarId, eventId: parsed.event_id })
+    const ownerPhone = event.data.extendedProperties?.private?.lead_phone
+    if (ownerPhone !== parsed.lead_phone) {
+      return {
+        status: 'bloqueado',
+        event_id: parsed.event_id,
+        mensagem: 'Evento não pertence a este lead.'
+      }
+    }
+  }
   await calendar.events.delete({ calendarId, eventId: parsed.event_id })
   return { status: 'cancelado', agenda: calendarId, event_id: parsed.event_id }
 }
