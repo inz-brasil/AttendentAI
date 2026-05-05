@@ -90,7 +90,8 @@ export async function registerTraceRoutes(app: FastifyInstance): Promise<void> {
         const start = ordered[0]
         const end = ordered[ordered.length - 1]
         const startData = start?.data ?? {}
-        const responseEvent = ordered.find((event) => event.event_type === 'agent_output' && event.agent === 'responder')
+        const responseEvent = ordered.find((event) => event.event_type === 'agent_output' && event.agent === 'responder') ??
+          [...ordered].reverse().find((event) => event.event_type === 'agent_output')
         const responseData = responseEvent?.data ?? {}
         return {
           run_id: runId,

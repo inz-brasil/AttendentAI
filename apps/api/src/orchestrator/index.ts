@@ -128,7 +128,7 @@ export class QueryEngine {
     })
     const runtimeContext = this.resolveRuntimeContext(payload)
     if (await this.isInternalAssistantContact(payload)) {
-      return this.processInternalAssistant(payload, runtimeContext, startedAt)
+      return this.processInternalAssistant(payload, runtimeContext, startedAt, runId)
     }
 
     const lead = await getOrCreateLead(payload.phone, payload.name, payload.contact_info)
@@ -753,15 +753,43 @@ export class QueryEngine {
   private async processInternalAssistant(
     payload: WebhookPayload,
     runtimeContext: { currentTime: string; timezone: string },
-    startedAt: number
+    startedAt: number,
+    runId: string
   ): Promise<WebhookResponse> {
     const systemPrompt = await this.getInternalAssistantPrompt()
+    await recordTrace({
+      phone: payload.phone,
+      runId,
+      agent: 'internal-assistant',
+      eventType: 'agent_selected',
+      title: 'Assistente interno selecionado',
+      data: {
+        operator_name: payload.name,
+        message_preview: truncateTraceText(payload.message, 300),
+        current_time: runtimeContext.currentTime
+      }
+    })
     const response = await this.internalAssistant.run({
       phone: payload.phone,
+      run_id: runId,
       system_prompt: systemPrompt,
       message: payload.message,
       operator_name: payload.name,
       current_time: runtimeContext.currentTime
+    })
+    await recordTrace({
+      phone: payload.phone,
+      runId,
+      agent: 'internal-assistant',
+      eventType: 'agent_output',
+      title: 'Resposta interna gerada',
+      data: {
+        response_preview: truncateTraceText(response.text, 800),
+        tokens_used: response.tokens_used,
+        duration_ms: response.duration_ms,
+        model: response.model,
+        tools_used: response.tool_trace.map((trace) => trace.tool)
+      }
     })
 
     broadcast({
@@ -775,6 +803,18 @@ export class QueryEngine {
       timestamp: new Date().toISOString()
     })
     markMessageProcessed()
+    await recordTrace({
+      phone: payload.phone,
+      runId,
+      agent: 'orchestrator',
+      eventType: 'pipeline_end',
+      title: 'Webhook interno processado',
+      data: {
+        processing_ms: Date.now() - startedAt,
+        tokens_used: response.tokens_used,
+        agent_used: 'internal-assistant'
+      }
+    })
 
     return {
       success: true,

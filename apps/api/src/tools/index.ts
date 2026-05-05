@@ -1,7 +1,7 @@
 // index.ts — Registry de tools disponíveis para agentes LLM
 import type { ChatCompletionTool } from 'openai/resources/chat/completions'
 import { executeHttpRequestTool } from './http-request'
-import { executeLeadLookupTool, executePlatformStatsTool } from './platform'
+import { executeLeadLookupTool, executePlatformStatsTool, executeVaultReadTool } from './platform'
 
 export const httpRequestToolDefinition: ChatCompletionTool = {
   type: 'function',
@@ -45,11 +45,18 @@ export const platformStatsToolDefinition: ChatCompletionTool = {
   type: 'function',
   function: {
     name: 'platform_stats',
-    description: 'Consulta métricas operacionais do AttendentAI, como leads totais e mensagens por período.',
+    description:
+      'Consulta métricas reais do AttendentAI. Use para responder quantos atendimentos houve hoje, nas últimas 24h, 7 dias ou 30 dias.',
     parameters: {
       type: 'object',
       additionalProperties: false,
-      properties: {}
+      properties: {
+        period: {
+          type: 'string',
+          enum: ['today', 'last_24_hours', 'last_7_days', 'last_30_days'],
+          description: 'Período da consulta. Para "hoje", use today.'
+        }
+      }
     }
   }
 }
@@ -58,21 +65,52 @@ export const leadLookupToolDefinition: ChatCompletionTool = {
   type: 'function',
   function: {
     name: 'lead_lookup',
-    description: 'Busca leads pelo telefone ou nome para responder perguntas internas do operador.',
+    description: 'Busca ou lista leads pelo telefone/nome para responder perguntas internas do operador.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
         query: {
           type: 'string',
-          description: 'Nome ou telefone do lead.'
+          description: 'Nome ou telefone do lead. Se omitido, lista os leads mais recentes.'
         },
         limit: {
           type: 'number',
           description: 'Quantidade máxima de leads retornados.'
+        },
+        include_vault: {
+          type: 'boolean',
+          description: 'Inclui preview de memoria.md e notas.md do vault do lead.'
+        }
+      }
+    }
+  }
+}
+
+export const vaultReadToolDefinition: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'vault_read',
+    description: 'Lê memoria.md, historico.md ou notas.md de um lead específico no vault.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        phone: {
+          type: 'string',
+          description: 'Telefone/WhatsApp exato do lead.'
+        },
+        filename: {
+          type: 'string',
+          enum: ['memoria.md', 'historico.md', 'notas.md'],
+          description: 'Arquivo do vault a ler.'
+        },
+        max_chars: {
+          type: 'number',
+          description: 'Limite de caracteres retornados.'
         }
       },
-      required: ['query']
+      required: ['phone']
     }
   }
 }
@@ -94,6 +132,10 @@ export async function executeRegisteredTool(name: string, args: unknown): Promis
 
   if (name === 'lead_lookup') {
     return executeLeadLookupTool(args)
+  }
+
+  if (name === 'vault_read') {
+    return executeVaultReadTool(args)
   }
 
   throw new Error(`Unknown tool: ${name}`)

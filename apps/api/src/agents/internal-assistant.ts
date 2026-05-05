@@ -14,14 +14,17 @@ import {
   executeRegisteredTool,
   httpRequestToolDefinition,
   leadLookupToolDefinition,
-  platformStatsToolDefinition
+  platformStatsToolDefinition,
+  vaultReadToolDefinition
 } from '../tools'
 import { BaseAgent, type AgentInput, type AgentRunMetadata, type AgentToolTrace } from './base-agent'
 import { SchedulingAgent } from './scheduling-agent'
 
 const internalSystemPrompt = `Você é o assistente interno do AttendentAI.
 Você atende apenas operadores autorizados e ajuda a consultar leads, métricas, histórico resumido e executar automações via webhook.
-Use tools quando precisar buscar dados reais, gerenciar agendamentos ou enviar dados para n8n.
+Use tools sempre que a pergunta envolver números, leads, vault, agenda, histórico, notas ou envio externo. Nunca invente métricas.
+Para perguntas como "quantos atendimentos hoje", use platform_stats com period="today" e responda usando atendimentos_unicos.
+Para buscar dados de leads, use lead_lookup. Para ler memória, histórico ou notas, use vault_read.
 Para criar, remarcar, cancelar ou consultar reunião de um lead, use scheduling_action.
 Quando scheduling_action retornar user_message, você pode enviar para outro número usando http_request se o operador pedir ou se houver webhook configurado na instrução.
 Para envio ativo, chame http_request com JSON contendo pelo menos phone e message. Nunca diga que foi enviado pelo WhatsApp antes do http_request retornar sucesso.
@@ -94,10 +97,11 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
    * @returns Lista de mensagens para o modelo.
    */
   protected override buildMessages(input: InternalAssistantInput): ChatCompletionMessageParam[] {
+    const customPrompt = input.system_prompt.trim()
     return [
       {
         role: 'system',
-        content: input.system_prompt || this.systemPrompt
+        content: customPrompt ? `${this.systemPrompt}\n\nInstruções configuradas pelo admin:\n${customPrompt}` : this.systemPrompt
       },
       {
         role: 'user',
@@ -118,7 +122,13 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
    */
   protected override getTools(input: InternalAssistantInput): ChatCompletionTool[] {
     void input
-    return [platformStatsToolDefinition, leadLookupToolDefinition, schedulingActionToolDefinition, httpRequestToolDefinition]
+    return [
+      platformStatsToolDefinition,
+      leadLookupToolDefinition,
+      vaultReadToolDefinition,
+      schedulingActionToolDefinition,
+      httpRequestToolDefinition
+    ]
   }
 
   /**
