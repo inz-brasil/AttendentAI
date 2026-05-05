@@ -8,9 +8,10 @@ import { IdentifierAgent, type LeadFieldsToUpdate } from '../agents/identifier'
 import { InternalAssistantAgent } from '../agents/internal-assistant'
 import { MemoryAgent } from '../agents/memory-agent'
 import { ResponderAgent } from '../agents/responder'
+import { SchedulingAgent, type SchedulingAgentOutput } from '../agents/scheduling-agent'
 import { SkillRouterAgent, type SkillCandidate } from '../agents/skill-router'
 import { db } from '../db/client'
-import { agents, leads, settings } from '../db/schema'
+import { agents, leads, mcpCredentials, mcpServers, settings } from '../db/schema'
 import {
   getOrCreateLead,
   loadMemory,
@@ -72,6 +73,7 @@ export class QueryEngine {
   private readonly memoryAgent = new MemoryAgent()
   private readonly promptBuilder = new PromptBuilder()
   private readonly responder = new ResponderAgent()
+  private readonly schedulingAgent = new SchedulingAgent()
   private readonly skillRouter = new SkillRouterAgent()
   private readonly skillsLoader = new SkillsLoader()
   private readonly mcpRegistry = new MCPRegistry()
@@ -283,8 +285,22 @@ export class QueryEngine {
     })
 
     const mcpEnabled = await this.isMcpEnabled()
+    const schedulingResult = mcpEnabled && this.shouldRunSchedulingAgent(classification.intent, payload.message)
+      ? await this.runSchedulingAgent({
+          phone: payload.phone,
+          runId,
+          message: payload.message,
+          leadName: refreshedLead?.name ?? payload.name,
+          leadEmail: refreshedLead?.email ?? null,
+          currentTime: runtimeContext.currentTime,
+          timezone: runtimeContext.timezone,
+          historySummary: liveSummary,
+          recentMessages: refreshedMemory.recent_messages
+        })
+      : null
     const mcpTools = mcpEnabled
-      ? this.mcpRegistry.formatForOpenAI(await this.mcpRegistry.getToolsForAgent('responder'))
+      ? this.mcpRegistry.formatForOpenAI((await this.mcpRegistry.getToolsForAgent('responder'))
+          .filter((tool) => tool.serverName !== 'Google Calendar'))
       : []
     if (mcpEnabled) {
       await recordTrace({
@@ -311,6 +327,7 @@ export class QueryEngine {
       tools_enabled: await this.isHttpToolEnabled(),
       mcp_enabled: mcpEnabled,
       mcp_tools: mcpTools,
+      scheduling_result: schedulingResult,
       recent_messages: refreshedMemory.recent_messages
     })
     const guardedText = this.normalizeWhatsAppResponse(response.text)
@@ -494,6 +511,102 @@ export class QueryEngine {
     })
 
     return result
+  }
+
+  private shouldRunSchedulingAgent(intent: string, message: string): boolean {
+    const normalized = message.toLowerCase()
+    const schedulingTerms = [
+      'agenda',
+      'agendar',
+      'marcar',
+      'reunião',
+      'reuniao',
+      'horário',
+      'horario',
+      'remarcar',
+      'cancelar',
+      'disponibilidade'
+    ]
+
+    return intent === 'scheduling' || schedulingTerms.some((term) => normalized.includes(term))
+  }
+
+  private async runSchedulingAgent(input: {
+    phone: string
+    runId: string
+    message: string
+    leadName: string
+    leadEmail: string | null
+    currentTime: string
+    timezone: string
+    historySummary: string
+    recentMessages: Array<{ role: 'user' | 'assistant' | null; content: string | null }>
+  }): Promise<SchedulingAgentOutput | null> {
+    const server = await this.loadConnectedGoogleCalendarServer()
+    if (!server) {
+      await recordTrace({
+        phone: input.phone,
+        runId: input.runId,
+        agent: 'scheduling-agent',
+        eventType: 'agent_skipped',
+        title: 'Google Calendar não conectado',
+        data: { reason: 'missing_google_calendar_credentials' }
+      })
+      return null
+    }
+
+    const result = await this.schedulingAgent.run({
+      phone: input.phone,
+      run_id: input.runId,
+      message: input.message,
+      lead_name: input.leadName,
+      lead_email: input.leadEmail,
+      current_time: input.currentTime,
+      timezone: input.timezone,
+      history_summary: input.historySummary,
+      recent_messages: input.recentMessages,
+      mcp_server_id: server.id
+    })
+
+    await recordTrace({
+      phone: input.phone,
+      runId: input.runId,
+      agent: 'scheduling-agent',
+      eventType: 'agent_output',
+      title: 'Agendamento processado',
+      data: {
+        status: result.status,
+        action: result.action,
+        message_to_responder: result.message_to_responder,
+        event_id: result.event_id,
+        scheduled_for: result.scheduled_for,
+        user_message: result.user_message,
+        admin_message: result.admin_message,
+        should_notify_user: result.should_notify_user,
+        missing_fields: result.missing_fields,
+        tools_used: result.tool_trace.map((trace) => trace.tool),
+        tokens_used: result.tokens_used,
+        duration_ms: result.duration_ms,
+        model: result.model
+      }
+    })
+
+    return result
+  }
+
+  private async loadConnectedGoogleCalendarServer(): Promise<typeof mcpServers.$inferSelect | null> {
+    const [server] = await db.select().from(mcpServers).where(eq(mcpServers.slug, 'google-calendar')).limit(1)
+    if (!server?.is_active) {
+      return null
+    }
+
+    const [credential] = await db
+      .select()
+      .from(mcpCredentials)
+      .where(eq(mcpCredentials.mcp_server_id, server.id))
+      .limit(1)
+
+    return credential?.refresh_token_encrypted ? server : null
   }
 
   private fallbackSkillIds(intent: string, candidates: SkillCandidate[]): string[] {

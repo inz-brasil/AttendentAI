@@ -1,11 +1,14 @@
 // mcp.ts — Endpoints administrativos para servidores MCP e vínculos com agentes
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { google } from 'googleapis'
 import { z } from 'zod'
 import { env } from '../config/env'
 import { db } from '../db/client'
 import { agentMcpServers, mcpCredentials, mcpServers } from '../db/schema'
 import { MCPClient } from '../mcp/client'
+import { getGoogleCalendarSettings } from '../mcp-servers/google-calendar/settings'
+import { getValidAccessToken } from '../mcp-servers/google-calendar/token-manager'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
 const serverBodySchema = z.object({
@@ -52,6 +55,7 @@ export async function registerMcpRoutes(app: FastifyInstance): Promise<void> {
       .where(eq(mcpCredentials.mcp_server_id, server.id))
       .limit(1)
 
+    const calendarSettings = await getGoogleCalendarSettings()
     return {
       connected: Boolean(credential?.refresh_token_encrypted),
       server,
@@ -65,7 +69,34 @@ export async function registerMcpRoutes(app: FastifyInstance): Promise<void> {
           }
         : null,
       account_email: null,
-      tools_count: server.tools_cache?.length ?? 5
+      tools_count: server.tools_cache?.length ?? 5,
+      selected_calendar_id: calendarSettings.calendarId,
+      event_description_template: calendarSettings.eventDescriptionTemplate
+    }
+  })
+
+  app.get('/api/mcp/google-calendar/calendars', async (request, reply) => {
+    if (!isAuthorized(request)) return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' })
+    const [server] = await db.select().from(mcpServers).where(eq(mcpServers.slug, 'google-calendar')).limit(1)
+    if (!server) return reply.code(404).send({ error: 'Google Calendar MCP não registrado', code: 'MCP_NOT_FOUND' })
+
+    const auth = new google.auth.OAuth2()
+    auth.setCredentials({ access_token: await getValidAccessToken(server.id) })
+    const calendar = google.calendar({ version: 'v3', auth })
+    const [calendarSettings, response] = await Promise.all([
+      getGoogleCalendarSettings(),
+      calendar.calendarList.list({ maxResults: 100 })
+    ])
+
+    return {
+      selected_calendar_id: calendarSettings.calendarId,
+      calendars: (response.data.items ?? []).map((item) => ({
+        id: item.id ?? '',
+        summary: item.summary ?? 'Agenda sem nome',
+        primary: Boolean(item.primary),
+        access_role: item.accessRole ?? null,
+        selected: item.id === calendarSettings.calendarId
+      })).filter((item) => item.id.length > 0)
     }
   })
 

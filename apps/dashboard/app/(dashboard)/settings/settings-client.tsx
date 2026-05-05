@@ -1,9 +1,9 @@
 'use client'
 // settings-client.tsx — Formulário de configurações globais do AttendentAI
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useToast } from '../../../components/ui/toast-provider'
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog'
-import type { CalendarStatus, Setting } from '../../../lib/api'
+import type { CalendarStatus, GoogleCalendarOption, Setting } from '../../../lib/api'
 
 const API_BASE = '/api/backend'
 
@@ -23,6 +23,13 @@ const TIMEZONES = [
   'America/Noronha',
   'UTC'
 ]
+const DEFAULT_EVENT_DESCRIPTION_TEMPLATE = [
+  'Nome: {lead_name}',
+  'WhatsApp: {lead_phone}',
+  'Serviço de interesse: {service_interest}',
+  'Motivo da reunião: {meeting_reason}',
+  'Observações: {notes}'
+].join('\n')
 
 interface SettingsClientProps {
   initialSettings: Setting[]
@@ -69,6 +76,8 @@ export function SettingsClient({ initialSettings, initialCalendarStatus }: Setti
   const { toast } = useToast()
   const [values, setValues] = useState<Record<string, string>>(toMap(initialSettings ?? []))
   const [calendarStatus, setCalendarStatus] = useState(initialCalendarStatus)
+  const [calendarOptions, setCalendarOptions] = useState<GoogleCalendarOption[]>([])
+  const [loadingCalendars, setLoadingCalendars] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testingCalendar, setTestingCalendar] = useState(false)
@@ -82,6 +91,11 @@ export function SettingsClient({ initialSettings, initialCalendarStatus }: Setti
   const set = useCallback((key: string, value: string) => {
     setValues(prev => ({ ...prev, [key]: value }))
   }, [])
+
+  useEffect(() => {
+    if (!calendarStatus.connected) return
+    void loadCalendarOptions()
+  }, [calendarStatus.connected])
 
   async function saveAll() {
     setSaving(true)
@@ -151,6 +165,28 @@ export function SettingsClient({ initialSettings, initialCalendarStatus }: Setti
     const response = await fetch(`${API_BASE}/api/mcp/google-calendar/status`, { cache: 'no-store' })
     if (!response.ok) throw new Error('Falha ao atualizar status do Calendar')
     setCalendarStatus(await response.json() as CalendarStatus)
+  }
+
+  async function loadCalendarOptions(): Promise<void> {
+    setLoadingCalendars(true)
+    try {
+      const response = await fetch(`${API_BASE}/api/mcp/google-calendar/calendars`, { cache: 'no-store' })
+      if (!response.ok) throw new Error('Falha ao carregar agendas')
+      const body = await response.json() as { calendars: GoogleCalendarOption[]; selected_calendar_id: string }
+      setCalendarOptions(body.calendars)
+      setValues(prev => ({
+        ...prev,
+        google_calendar_id: prev.google_calendar_id || body.selected_calendar_id,
+        google_calendar_event_description_template:
+          prev.google_calendar_event_description_template ||
+          calendarStatus.event_description_template ||
+          DEFAULT_EVENT_DESCRIPTION_TEMPLATE
+      }))
+    } catch {
+      toast({ title: 'Erro ao carregar agendas do Google Calendar', variant: 'danger' })
+    } finally {
+      setLoadingCalendars(false)
+    }
   }
 
   async function testCalendarConnection(): Promise<void> {
@@ -264,6 +300,39 @@ export function SettingsClient({ initialSettings, initialCalendarStatus }: Setti
               </button>
             )}
           </div>
+          {calendarStatus.connected && (
+            <div className="mt-4 grid gap-4 border-t border-line pt-4">
+              <Field label="Agenda usada pelo agente">
+                <select
+                  value={values.google_calendar_id ?? calendarStatus.selected_calendar_id ?? 'primary'}
+                  onChange={e => set('google_calendar_id', e.target.value)}
+                  disabled={loadingCalendars}
+                  className="field-input"
+                >
+                  {calendarOptions.length === 0 ? (
+                    <option value={calendarStatus.selected_calendar_id ?? 'primary'}>
+                      {loadingCalendars ? 'Carregando agendas…' : 'Agenda principal'}
+                    </option>
+                  ) : calendarOptions.map(calendar => (
+                    <option key={calendar.id} value={calendar.id}>
+                      {calendar.summary}{calendar.primary ? ' (principal)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Descrição padrão do evento">
+                <textarea
+                  value={values.google_calendar_event_description_template ?? DEFAULT_EVENT_DESCRIPTION_TEMPLATE}
+                  onChange={e => set('google_calendar_event_description_template', e.target.value)}
+                  className="field-input min-h-32 font-mono text-xs"
+                />
+                <span className="text-[11px] text-muted/60">
+                  Variáveis: {'{lead_name}'}, {'{lead_phone}'}, {'{service_interest}'}, {'{meeting_reason}'}, {'{notes}'}.
+                </span>
+              </Field>
+            </div>
+          )}
         </div>
       </Section>
 

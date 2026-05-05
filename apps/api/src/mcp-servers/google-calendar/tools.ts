@@ -2,6 +2,7 @@
 import { google, calendar_v3 } from 'googleapis'
 import { z } from 'zod'
 import { getValidAccessToken } from './token-manager'
+import { getGoogleCalendarSettings, renderEventDescription } from './settings'
 
 type BusySlot = calendar_v3.Schema$TimePeriod
 type CalendarToolResult = Record<string, unknown>
@@ -35,7 +36,7 @@ export const googleCalendarTools = [
   },
   {
     name: 'criar_evento',
-    description: 'Cria evento no Google Calendar.',
+    description: 'Cria evento na agenda configurada. Inclua Nome, WhatsApp, serviço de interesse, motivo da reunião e observações quando souber.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -44,7 +45,12 @@ export const googleCalendarTools = [
         time: { type: 'string', description: 'Hora em HH:mm.' },
         duration_minutes: { type: 'number' },
         attendee_email: { type: 'string' },
-        description: { type: 'string' }
+        description: { type: 'string' },
+        lead_name: { type: 'string', description: 'Nome do lead.' },
+        lead_phone: { type: 'string', description: 'WhatsApp/telefone do lead.' },
+        service_interest: { type: 'string', description: 'Serviço de interesse.' },
+        meeting_reason: { type: 'string', description: 'Motivo da reunião.' },
+        notes: { type: 'string', description: 'Observações relevantes para a reunião.' }
       },
       required: ['title', 'date', 'time', 'duration_minutes']
     }
@@ -82,7 +88,12 @@ const createEventSchema = z.object({
   time: z.string().min(1),
   duration_minutes: z.coerce.number().int().positive(),
   attendee_email: z.string().email().optional(),
-  description: z.string().optional()
+  description: z.string().optional(),
+  lead_name: z.string().optional(),
+  lead_phone: z.string().optional(),
+  service_interest: z.string().optional(),
+  meeting_reason: z.string().optional(),
+  notes: z.string().optional()
 })
 const cancelEventSchema = z.object({ event_id: z.string().min(1) })
 const nextSlotSchema = z.object({ duration_minutes: z.coerce.number().int().positive(), after_date: z.string().optional() })
@@ -140,18 +151,20 @@ async function calendarClient(mcpServerId: string) {
 export async function verificarDisponibilidade(args: unknown, mcpServerId: string): Promise<CalendarToolResult> {
   const parsed = availabilitySchema.parse(args)
   const calendar = await calendarClient(mcpServerId)
+  const { calendarId } = await getGoogleCalendarSettings()
   const { start, end } = dayBounds(parsed.date)
   const freeBusy = await calendar.freebusy.query({
     requestBody: {
       timeMin: start.toISOString(),
       timeMax: end.toISOString(),
-      items: [{ id: 'primary' }]
+      items: [{ id: calendarId }]
     }
   })
-  const busySlots = freeBusy.data.calendars?.primary?.busy ?? []
+  const busySlots = freeBusy.data.calendars?.[calendarId]?.busy ?? []
   const freeSlots = calculateFreeSlots(start, end, busySlots, parsed.duration_minutes)
   return {
     data: parsed.date,
+    agenda: calendarId,
     horarios_livres: freeSlots.map(formatDateTime),
     eventos_ocupados: busySlots.length
   }
@@ -166,10 +179,11 @@ export async function verificarDisponibilidade(args: unknown, mcpServerId: strin
 export async function listarEventos(args: unknown, mcpServerId: string): Promise<CalendarToolResult> {
   const parsed = listEventsSchema.parse(args)
   const calendar = await calendarClient(mcpServerId)
+  const { calendarId } = await getGoogleCalendarSettings()
   const date = parsed.date ?? new Date().toISOString().slice(0, 10)
   const { start, end } = dayBounds(date)
   const events = await calendar.events.list({
-    calendarId: 'primary',
+    calendarId,
     timeMin: start.toISOString(),
     timeMax: end.toISOString(),
     maxResults: parsed.max_results,
@@ -177,6 +191,7 @@ export async function listarEventos(args: unknown, mcpServerId: string): Promise
     orderBy: 'startTime'
   })
   return {
+    agenda: calendarId,
     eventos: (events.data.items ?? []).map((event) => ({
       id: event.id,
       titulo: event.summary ?? 'Sem título',
@@ -195,16 +210,20 @@ export async function listarEventos(args: unknown, mcpServerId: string): Promise
 export async function criarEvento(args: unknown, mcpServerId: string): Promise<CalendarToolResult> {
   const parsed = createEventSchema.parse(args)
   const calendar = await calendarClient(mcpServerId)
+  const { calendarId, eventDescriptionTemplate } = await getGoogleCalendarSettings()
   const start = new Date(`${parsed.date}T${parsed.time}:00`)
   const end = new Date(start.getTime() + parsed.duration_minutes * 60 * 1000)
   const requestBody: calendar_v3.Schema$Event = {
     summary: parsed.title,
     start: { dateTime: start.toISOString() },
-    end: { dateTime: end.toISOString() }
-  }
-
-  if (parsed.description) {
-    requestBody.description = parsed.description
+    end: { dateTime: end.toISOString() },
+    description: parsed.description ?? renderEventDescription(eventDescriptionTemplate, {
+      lead_name: parsed.lead_name,
+      lead_phone: parsed.lead_phone,
+      service_interest: parsed.service_interest,
+      meeting_reason: parsed.meeting_reason,
+      notes: parsed.notes
+    })
   }
 
   if (parsed.attendee_email) {
@@ -212,11 +231,12 @@ export async function criarEvento(args: unknown, mcpServerId: string): Promise<C
   }
 
   const event = await calendar.events.insert({
-    calendarId: 'primary',
+    calendarId,
     requestBody
   })
   return {
     status: 'criado',
+    agenda: calendarId,
     event_id: event.data.id,
     titulo: event.data.summary,
     inicio: formatDateTime(start),
@@ -233,8 +253,9 @@ export async function criarEvento(args: unknown, mcpServerId: string): Promise<C
 export async function cancelarEvento(args: unknown, mcpServerId: string): Promise<CalendarToolResult> {
   const parsed = cancelEventSchema.parse(args)
   const calendar = await calendarClient(mcpServerId)
-  await calendar.events.delete({ calendarId: 'primary', eventId: parsed.event_id })
-  return { status: 'cancelado', event_id: parsed.event_id }
+  const { calendarId } = await getGoogleCalendarSettings()
+  await calendar.events.delete({ calendarId, eventId: parsed.event_id })
+  return { status: 'cancelado', agenda: calendarId, event_id: parsed.event_id }
 }
 
 /**

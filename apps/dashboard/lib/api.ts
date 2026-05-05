@@ -146,6 +146,16 @@ export interface CalendarStatus {
   } | null
   account_email: string | null
   tools_count: number
+  selected_calendar_id?: string
+  event_description_template?: string
+}
+
+export interface GoogleCalendarOption {
+  id: string
+  summary: string
+  primary: boolean
+  access_role: string | null
+  selected: boolean
 }
 
 export interface NewMcpServerInput {
@@ -235,6 +245,8 @@ export const api = {
       body: JSON.stringify({ servers: serverIds.map((id) => ({ mcp_server_id: id, enabled: true })) })
     }),
   getCalendarStatus: () => request<CalendarStatus>('/api/mcp/google-calendar/status'),
+  getGoogleCalendars: () =>
+    request<{ selected_calendar_id: string; calendars: GoogleCalendarOption[] }>('/api/mcp/google-calendar/calendars'),
   disconnectCalendar: (credentialId: string) =>
     request<{ success: boolean }>(`/api/mcp/credentials/${encodeURIComponent(credentialId)}`, { method: 'DELETE' })
 }

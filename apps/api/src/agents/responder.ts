@@ -10,13 +10,16 @@ import { ToolExecutor } from '../mcp/tool-executor'
 import { executeRegisteredTool, httpRequestToolDefinition } from '../tools'
 import { BaseAgent, type AgentInput, type AgentRunMetadata, type AgentToolTrace } from './base-agent'
 import type { ClassificationOutput } from './classifier'
+import type { SchedulingAgentOutput } from './scheduling-agent'
 
 const responderSystemPrompt = `Você é um atendente humanizado de WhatsApp. Responda de forma natural e empática.
 NUNCA invente informações que não foram fornecidas. Se não souber algo, diga que vai verificar.
 Mantenha respostas curtas (máximo 3 parágrafos). Se a resposta for adequada para áudio (curta,
 sem links, sem formatação), inclua [AUDIO_OK] ao final.
 Quando houver um link de webhook/API e dados confirmados para executar uma ação externa, use a tool http_request
-com JSON objetivo antes de responder ao lead.`
+com JSON objetivo antes de responder ao lead.
+Quando receber resultado do agente de agendamento, siga exatamente esse resultado: confirme apenas eventos criados
+com sucesso, peça dados faltantes quando solicitado e não prometa agendamento sem event_id.`
 
 export interface ResponderInput extends AgentInput {
   phone: string
@@ -29,6 +32,7 @@ export interface ResponderInput extends AgentInput {
   tools_enabled: boolean
   mcp_enabled: boolean
   mcp_tools: ChatCompletionTool[]
+  scheduling_result: SchedulingAgentOutput | null
   recent_messages: Array<{
     role: 'user' | 'assistant' | null
     content: string | null
@@ -79,6 +83,18 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
         content: [
           `Nome do lead: ${input.lead_name || 'não informado'}`,
           `Classificação: ${JSON.stringify(input.classification)}`,
+          input.scheduling_result
+            ? `Resultado do agente de agendamento: ${JSON.stringify({
+                status: input.scheduling_result.status,
+                action: input.scheduling_result.action,
+                message_to_responder: input.scheduling_result.message_to_responder,
+                user_message: input.scheduling_result.user_message,
+                admin_message: input.scheduling_result.admin_message,
+                event_id: input.scheduling_result.event_id,
+                scheduled_for: input.scheduling_result.scheduled_for,
+                missing_fields: input.scheduling_result.missing_fields
+              })}`
+            : 'Resultado do agente de agendamento: não acionado',
           `Mensagem recebida agora: ${input.message}`,
           'Não repita uma saudação ou pergunta que você já enviou nas mensagens anteriores.'
         ].join('\n')
