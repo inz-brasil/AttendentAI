@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feat/v2-mcp
   workflow_dispatch:
 
 permissions:
