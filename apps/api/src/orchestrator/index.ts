@@ -285,7 +285,25 @@ export class QueryEngine {
     })
 
     const mcpEnabled = await this.isMcpEnabled()
-    const schedulingResult = mcpEnabled && this.shouldRunSchedulingAgent(classification.intent, payload.message)
+    const shouldRunScheduling = this.shouldRunSchedulingAgent(
+      classification.intent,
+      payload.message,
+      liveSummary,
+      refreshedMemory.recent_messages
+    )
+    await recordTrace({
+      phone: payload.phone,
+      runId,
+      agent: 'scheduling-agent',
+      eventType: shouldRunScheduling ? 'agent_selected' : 'agent_skipped',
+      title: shouldRunScheduling ? 'Agente de agendamento selecionado' : 'Agente de agendamento não acionado',
+      data: {
+        mcp_enabled: mcpEnabled,
+        classification_intent: classification.intent,
+        message_preview: truncateTraceText(payload.message, 220)
+      }
+    })
+    const schedulingResult = mcpEnabled && shouldRunScheduling
       ? await this.runSchedulingAgent({
           phone: payload.phone,
           runId,
@@ -327,6 +345,7 @@ export class QueryEngine {
       tools_enabled: await this.isHttpToolEnabled(),
       mcp_enabled: mcpEnabled,
       mcp_tools: mcpTools,
+      scheduling_required: shouldRunScheduling,
       scheduling_result: schedulingResult,
       recent_messages: refreshedMemory.recent_messages
     })
@@ -513,8 +532,17 @@ export class QueryEngine {
     return result
   }
 
-  private shouldRunSchedulingAgent(intent: string, message: string): boolean {
+  private shouldRunSchedulingAgent(
+    intent: string,
+    message: string,
+    liveSummary: string,
+    recentMessages: Array<{ role: 'user' | 'assistant' | null; content: string | null }>
+  ): boolean {
     const normalized = message.toLowerCase()
+    const context = [
+      liveSummary,
+      ...recentMessages.slice(-8).map((item) => item.content ?? '')
+    ].join('\n').toLowerCase()
     const schedulingTerms = [
       'agenda',
       'agendar',
@@ -525,10 +553,41 @@ export class QueryEngine {
       'horario',
       'remarcar',
       'cancelar',
-      'disponibilidade'
+      'disponibilidade',
+      'amanhã',
+      'amanha',
+      'segunda',
+      'terça',
+      'terca',
+      'quarta',
+      'quinta',
+      'sexta',
+      'sábado',
+      'sabado',
+      'domingo',
+      'presencial',
+      'online'
+    ]
+    const confirmationTerms = [
+      'sim',
+      'confirmo',
+      'confirmar',
+      'pode confirmar',
+      'pode marcar',
+      'fechado',
+      'combinado',
+      'ok',
+      'beleza',
+      'perfeito',
+      'online',
+      'presencial'
     ]
 
-    return intent === 'scheduling' || schedulingTerms.some((term) => normalized.includes(term))
+    const hasSchedulingInMessage = schedulingTerms.some((term) => normalized.includes(term))
+    const hasSchedulingInContext = schedulingTerms.some((term) => context.includes(term))
+    const isConfirmation = confirmationTerms.some((term) => normalized.includes(term))
+
+    return intent === 'scheduling' || hasSchedulingInMessage || (hasSchedulingInContext && isConfirmation)
   }
 
   private async runSchedulingAgent(input: {

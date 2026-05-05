@@ -7,6 +7,8 @@ import { BaseAgent, type AgentInput, type AgentRunMetadata } from './base-agent'
 const classifierSystemPrompt = `Você é um classificador de mensagens de atendimento.
 Você NÃO recebe dados do lead e NÃO deve inferir dados pessoais.
 Retorne APENAS JSON válido, sem markdown, sem comentários e sem texto fora do JSON.
+Use o resumo histórico para manter continuidade do assunto.
+Se o resumo histórico indicar conversa sobre reunião, agenda, horário, disponibilidade, online ou presencial, e a mensagem atual for confirmação curta como "sim", "pode confirmar", "online", "fechado" ou "ok", classifique como "scheduling".
 
 Schema obrigatório:
 {

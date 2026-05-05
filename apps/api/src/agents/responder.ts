@@ -32,6 +32,7 @@ export interface ResponderInput extends AgentInput {
   tools_enabled: boolean
   mcp_enabled: boolean
   mcp_tools: ChatCompletionTool[]
+  scheduling_required: boolean
   scheduling_result: SchedulingAgentOutput | null
   recent_messages: Array<{
     role: 'user' | 'assistant' | null
@@ -95,6 +96,9 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
                 missing_fields: input.scheduling_result.missing_fields
               })}`
             : 'Resultado do agente de agendamento: não acionado',
+          input.scheduling_required && !input.scheduling_result
+            ? 'Atenção: a conversa parece exigir agendamento, mas o agente de agendamento não executou. NÃO confirme reunião; diga que vai verificar a agenda ou peça o dado faltante.'
+            : 'Atenção de agendamento: sem bloqueio adicional.',
           `Mensagem recebida agora: ${input.message}`,
           'Não repita uma saudação ou pergunta que você já enviou nas mensagens anteriores.'
         ].join('\n')
