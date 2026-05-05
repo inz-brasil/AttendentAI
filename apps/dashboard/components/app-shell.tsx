@@ -1,6 +1,10 @@
 // app-shell.tsx — Shell principal com sidebar, header e área de conteúdo
-import type { ReactNode } from 'react'
+'use client'
+
+import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import * as Dialog from '@radix-ui/react-dialog'
 import { logoutAction } from '../app/actions'
 
 type NavIconProps = {
@@ -117,6 +121,25 @@ function McpIcon({ className }: NavIconProps): JSX.Element {
   )
 }
 
+function MenuIcon({ className }: NavIconProps): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M4 7h16" />
+      <path d="M4 12h16" />
+      <path d="M4 17h16" />
+    </svg>
+  )
+}
+
+function CloseIcon({ className }: NavIconProps): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="m6 6 12 12" />
+      <path d="M18 6 6 18" />
+    </svg>
+  )
+}
+
 const navItems = [
   { href: '/', label: 'Home', icon: HomeIcon },
   { href: '/leads', label: 'Leads', icon: LeadsIcon },
@@ -130,63 +153,131 @@ const navItems = [
   { href: '/settings', label: 'Settings', icon: SettingsIcon }
 ]
 
+function isActivePath(pathname: string, href: string): boolean {
+  if (href === '/') return pathname === '/'
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
+
+function NavigationItems({ onNavigate }: { onNavigate?: () => void }): JSX.Element {
+  const pathname = usePathname()
+
+  return (
+    <>
+      {navItems.map((item) => {
+        const Icon = item.icon
+        const active = isActivePath(pathname, item.href)
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={onNavigate}
+            aria-current={active ? 'page' : undefined}
+            className={[
+              'focus-ring group flex h-11 items-center gap-3 rounded-md px-3 text-sm transition',
+              active ? 'bg-elevated text-ink' : 'text-muted hover:bg-elevated hover:text-ink'
+            ].join(' ')}
+          >
+            <span className={[
+              'grid h-8 w-8 shrink-0 place-items-center rounded bg-canvas shadow-panel transition',
+              active ? 'text-accent' : 'text-cyan group-hover:text-accent'
+            ].join(' ')}
+            >
+              <Icon className="h-4 w-4" />
+            </span>
+            <span>{item.label}</span>
+          </Link>
+        )
+      })}
+    </>
+  )
+}
+
+function SidebarContent({ onNavigate }: { onNavigate?: () => void }): JSX.Element {
+  return (
+    <>
+      <Link href="/" onClick={onNavigate} className="focus-ring block rounded-md px-2 py-1">
+        <div className="font-mono text-xs uppercase tracking-[0.22em] text-accent">AttendentAI</div>
+        <div className="mt-2 text-xl font-semibold tracking-tight">Operations Console</div>
+      </Link>
+
+      <nav className="mt-8 space-y-1" aria-label="Navegação principal">
+        <NavigationItems onNavigate={onNavigate} />
+      </nav>
+
+      <div className="mt-8 rounded-lg bg-canvas p-4 shadow-panel lg:absolute lg:bottom-5 lg:left-4 lg:right-4 lg:mt-0">
+        <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Status</div>
+        <div className="mt-3 flex items-center justify-between text-sm">
+          <span className="text-ink">Core API</span>
+          <span className="rounded-full bg-success/15 px-2 py-1 font-mono text-xs text-success">ready</span>
+        </div>
+      </div>
+    </>
+  )
+}
+
 /**
  * Renderiza o layout operacional do dashboard.
  * @param props Conteúdo da página.
  * @returns Shell visual do dashboard.
  */
 export function AppShell({ children }: { children: ReactNode }): JSX.Element {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-72 border-r border-line bg-panel/95 px-4 py-5 lg:block">
-        <Link href="/" className="focus-ring block rounded-md px-2 py-1">
-          <div className="font-mono text-xs uppercase tracking-[0.22em] text-accent">AttendentAI</div>
-          <div className="mt-2 text-xl font-semibold tracking-tight">Operations Console</div>
-        </Link>
-
-        <nav className="mt-8 space-y-1">
-          {navItems.map((item) => {
-            const Icon = item.icon
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="focus-ring group flex h-11 items-center gap-3 rounded-md px-3 text-sm text-muted transition hover:bg-elevated hover:text-ink"
-              >
-                <span className="grid h-8 w-8 place-items-center rounded bg-canvas text-cyan shadow-panel transition group-hover:text-accent">
-                  <Icon className="h-4 w-4" />
-                </span>
-                <span>{item.label}</span>
-              </Link>
-            )
-          })}
-        </nav>
-
-        <div className="absolute bottom-5 left-4 right-4 rounded-lg bg-canvas p-4 shadow-panel">
-          <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Status</div>
-          <div className="mt-3 flex items-center justify-between text-sm">
-            <span className="text-ink">Core API</span>
-            <span className="rounded-full bg-success/15 px-2 py-1 font-mono text-xs text-success">ready</span>
-          </div>
-        </div>
+        <SidebarContent />
       </aside>
 
       <div className="lg:pl-72">
         <header className="sticky top-0 z-10 border-b border-line bg-canvas/90 backdrop-blur">
-          <div className="flex h-16 items-center justify-between px-5 lg:px-8">
-            <div>
+          <div className="flex h-16 items-center justify-between gap-3 px-4 sm:px-5 lg:px-8">
+            <div className="flex min-w-0 items-center gap-3">
+              <Dialog.Root open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+                <Dialog.Trigger asChild>
+                  <button
+                    type="button"
+                    className="focus-ring grid h-10 w-10 shrink-0 place-items-center rounded-md border border-line bg-panel text-cyan shadow-panel transition hover:border-cyan hover:text-accent lg:hidden"
+                    aria-label="Abrir menu"
+                  >
+                    <MenuIcon className="h-5 w-5" />
+                  </button>
+                </Dialog.Trigger>
+                <Dialog.Portal>
+                  <Dialog.Overlay className="fixed inset-0 z-40 bg-canvas/75 backdrop-blur-sm lg:hidden" />
+                  <Dialog.Content className="fixed inset-y-0 left-0 z-50 flex w-[min(20rem,88vw)] flex-col border-r border-line bg-panel px-4 py-5 shadow-2xl outline-none lg:hidden">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <SidebarContent onNavigate={() => setMobileMenuOpen(false)} />
+                      </div>
+                      <Dialog.Close asChild>
+                        <button
+                          type="button"
+                          className="focus-ring grid h-9 w-9 shrink-0 place-items-center rounded-md border border-line bg-canvas text-muted transition hover:text-ink"
+                          aria-label="Fechar menu"
+                        >
+                          <CloseIcon className="h-4 w-4" />
+                        </button>
+                      </Dialog.Close>
+                    </div>
+                  </Dialog.Content>
+                </Dialog.Portal>
+              </Dialog.Root>
+
+              <div className="min-w-0">
               <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">WhatsApp Agent Platform</div>
-              <h1 className="text-lg font-semibold tracking-tight">AttendentAI</h1>
+                <h1 className="truncate text-lg font-semibold tracking-tight">AttendentAI</h1>
+              </div>
             </div>
             <form action={logoutAction}>
-              <button className="focus-ring h-9 rounded-md bg-accent px-4 text-sm font-semibold text-canvas transition hover:bg-[#e7ef58]">
+              <button className="focus-ring h-9 rounded-md bg-accent px-3 text-sm font-semibold text-canvas transition hover:bg-[#e7ef58] sm:px-4">
                 Logout
               </button>
             </form>
           </div>
         </header>
 
-        <main className="mx-auto min-h-[calc(100vh-4rem)] max-w-7xl px-5 py-6 lg:px-8">{children}</main>
+        <main className="mx-auto min-h-[calc(100vh-4rem)] max-w-7xl overflow-x-hidden px-4 py-5 sm:px-5 lg:px-8 lg:py-6">{children}</main>
       </div>
     </div>
   )
