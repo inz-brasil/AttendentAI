@@ -1,6 +1,7 @@
 // webhook.ts — Recebe webhooks do n8n e valida payloads do WhatsApp
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
+import { WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE } from '../config/constants'
 import { env } from '../config/env'
 import { enforcePhoneRateLimit } from '../rate-limit'
 import { enqueueMessage } from '../queue/message-queue'
@@ -59,7 +60,7 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
     }
 
     const payload: WebhookPayload = parsed.data
-    const allowed = await enforcePhoneRateLimit(request, reply, payload.phone, 10)
+    const allowed = await enforcePhoneRateLimit(request, reply, payload.phone, WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE)
     if (!allowed) {
       return reply
     }

@@ -4,12 +4,24 @@ import { db } from '../db/client'
 import { agentSkills, skills } from '../db/schema'
 
 type Priority = 'high' | 'medium' | 'low'
+type SkillRow = {
+  id: string
+  slug: string | null
+  name: string
+  description: string | null
+  when_to_use: string | null
+  priority: string | null
+  content: string | null
+  order: number | null
+}
 
 const priorityRank: Record<Priority, number> = {
   high: 0,
   medium: 1,
   low: 2
 }
+const SKILL_CACHE_TTL_MS = 5 * 60 * 1000
+const rowsCache = new Map<string, { rows: SkillRow[]; expiresAt: number }>()
 
 function rankPriority(priority: string | null): number {
   return priorityRank[(priority ?? 'medium') as Priority] ?? priorityRank.medium
@@ -35,22 +47,27 @@ function formatSkill(skill: {
     .join('\n')
 }
 
+function summarizeSkillContent(content: string | null): string {
+  if (!content?.trim()) return ''
+  return content
+    .replace(/^---[\s\S]*?---\s*/u, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 900)
+}
+
 export class SkillsLoader {
   /**
    * Carrega metadados e conteúdo de skills ativas associadas a um agente.
    * @param agentId ID do agente.
    * @returns Skills ordenadas por prioridade e ordem manual.
    */
-  async loadRowsForAgent(agentId: string): Promise<Array<{
-    id: string
-    slug: string | null
-    name: string
-    description: string | null
-    when_to_use: string | null
-    priority: string | null
-    content: string | null
-    order: number | null
-  }>> {
+  async loadRowsForAgent(agentId: string): Promise<SkillRow[]> {
+    const cached = rowsCache.get(agentId)
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.rows
+    }
+
     const rows = await db
       .select({
         id: skills.id,
@@ -67,7 +84,22 @@ export class SkillsLoader {
       .where(and(eq(agentSkills.agent_id, agentId), eq(skills.is_active, true)))
       .orderBy(sql`${agentSkills.order}`)
 
-    return rows.sort((a, b) => rankPriority(a.priority) - rankPriority(b.priority) || (a.order ?? 0) - (b.order ?? 0))
+    const sorted = rows.sort((a, b) => rankPriority(a.priority) - rankPriority(b.priority) || (a.order ?? 0) - (b.order ?? 0))
+    rowsCache.set(agentId, { rows: sorted, expiresAt: Date.now() + SKILL_CACHE_TTL_MS })
+    return sorted
+  }
+
+  /**
+   * Carrega catálogo resumido de skills para roteamento barato.
+   * @param agentId ID do agente.
+   * @returns Metadados e resumo cacheável de cada skill.
+   */
+  async loadSummariesForAgent(agentId: string): Promise<Array<SkillRow & { content_summary: string }>> {
+    const rows = await this.loadRowsForAgent(agentId)
+    return rows.map((skill) => ({
+      ...skill,
+      content_summary: summarizeSkillContent(skill.content)
+    }))
   }
 
   /**

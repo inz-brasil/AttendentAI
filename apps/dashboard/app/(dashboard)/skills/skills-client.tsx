@@ -1,6 +1,6 @@
 'use client'
 // skills-client.tsx — Lista de skills com busca e navegação para editor
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Badge } from '../../../components/ui/badge'
@@ -32,6 +32,10 @@ export function SkillsClient({ initialSkills }: SkillsClientProps): JSX.Element 
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; id: string | null; name: string | null }>({ open: false, id: null, name: null })
 
+  useEffect(() => {
+    setSkills(initialSkills)
+  }, [initialSkills])
+
   const filtered = useMemo(() => {
     if (!search.trim()) return skills
     const q = search.toLowerCase()
@@ -46,8 +50,10 @@ export function SkillsClient({ initialSkills }: SkillsClientProps): JSX.Element 
         body: JSON.stringify({ is_active: !skill.is_active })
       })
       if (!res.ok) throw new Error()
-      setSkills(prev => prev.map(s => s.id === skill.id ? { ...s, is_active: !s.is_active } : s))
+      const updated = await res.json() as Skill
+      setSkills(prev => prev.map(s => s.id === skill.id ? updated : s))
       toast({ title: `Skill ${!skill.is_active ? 'ativada' : 'desativada'}`, variant: 'success' })
+      router.refresh()
     } catch {
       toast({ title: 'Erro ao alterar status da skill', variant: 'danger' })
     }

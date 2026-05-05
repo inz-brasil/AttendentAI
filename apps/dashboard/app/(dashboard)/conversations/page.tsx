@@ -7,11 +7,10 @@ import { ConversationsClient } from './conversations-client'
  * @returns Feed de conversas com WebSocket ao vivo.
  */
 export default async function ConversationsPage(): Promise<JSX.Element> {
-  let conversations: Awaited<ReturnType<typeof api.leads>> = []
+  let conversations: Awaited<ReturnType<typeof api.conversations>> = { messages: [] }
   try {
-    // Usa o endpoint de leads para obter lista inicial com última atividade
-    conversations = await api.leads()
+    conversations = await api.conversations()
   } catch { /* renderiza vazio se API offline */ }
 
-  return <ConversationsClient initialLeads={conversations} />
+  return <ConversationsClient initialMessages={conversations.messages} />
 }

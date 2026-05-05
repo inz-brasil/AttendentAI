@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useWebSocket } from '../../../lib/ws'
 import { Badge } from '../../../components/ui/badge'
 import type { LiveEvent } from '../../../lib/ws'
-import type { Lead } from '../../../lib/api'
+import type { ConversationMessage } from '../../../lib/api'
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '/api/backend')
 
@@ -61,30 +61,50 @@ function isLiveMessage(event: LiveEvent): event is LiveEvent & LiveMessage {
 }
 
 interface ConversationsClientProps {
-  initialLeads: Lead[]
+  initialMessages: ConversationMessage[]
+}
+
+function buildInitialFeed(messages: ConversationMessage[]): ConvEntry[] {
+  const byPhone = new Map<string, ConversationMessage[]>()
+  for (const message of messages) {
+    if (!message.lead_phone) continue
+    byPhone.set(message.lead_phone, [...(byPhone.get(message.lead_phone) ?? []), message])
+  }
+
+  return [...byPhone.entries()].map(([phone, rows]) => {
+    const sorted = [...rows].sort((a, b) =>
+      new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime()
+    )
+    const latest = sorted.at(-1)
+    const lastUser = [...sorted].reverse().find(message => message.role === 'user')
+    const lastAssistant = [...sorted].reverse().find(message => message.role === 'assistant')
+
+    return {
+      phone,
+      name: null,
+      lastMessage: lastUser?.content ?? latest?.content ?? '',
+      lastResponse: lastAssistant?.content ?? '',
+      agent: latest?.agent_used ?? 'responder',
+      intent: latest?.intent ?? undefined,
+      timestamp: latest?.created_at ?? new Date().toISOString(),
+      isNew: false
+    }
+  }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 }
 
 /**
  * Feed ao vivo de conversas com WebSocket para atualizações em tempo real.
- * @param props Leads iniciais do RSC.
+ * @param props Mensagens iniciais do RSC.
  * @returns Feed de conversas com filtros e expansão de chat.
  */
-export function ConversationsClient({ initialLeads }: ConversationsClientProps): JSX.Element {
+export function ConversationsClient({ initialMessages }: ConversationsClientProps): JSX.Element {
   const { status: wsStatus, lastEvent } = useWebSocket('/ws')
 
-  // Feed de conversas — inicia com leads conhecidos (sem mensagem ainda)
-  const [feed, setFeed] = useState<ConvEntry[]>(() =>
-    initialLeads.map(l => ({
-      phone: l.phone,
-      name: l.name,
-      lastMessage: '',
-      lastResponse: '',
-      agent: 'responder',
-      intent: undefined as string | undefined,
-      timestamp: new Date().toISOString(),
-      isNew: false
-    }))
-  )
+  const [feed, setFeed] = useState<ConvEntry[]>(() => buildInitialFeed(initialMessages))
+
+  useEffect(() => {
+    setFeed(buildInitialFeed(initialMessages))
+  }, [initialMessages])
 
   // Conversa expandida e suas mensagens
   const [expandedPhone, setExpandedPhone] = useState<string | null>(null)

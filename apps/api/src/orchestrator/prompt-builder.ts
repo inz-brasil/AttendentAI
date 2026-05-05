@@ -1,6 +1,7 @@
 // prompt-builder.ts — Monta system prompt em camadas para o agente respondedor
 import { eq } from 'drizzle-orm'
 import pino from 'pino'
+import { MCP_ENABLED } from '../config/constants'
 import { env } from '../config/env'
 import { db } from '../db/client'
 import { agents, settings } from '../db/schema'
@@ -23,6 +24,7 @@ export interface PromptBuilderInput {
   lead: LeadPromptContext
   memory: MemorySnapshot
   vaultContext: string
+  skillContext: string
   selectedSkillIds?: string[]
 }
 
@@ -52,7 +54,7 @@ export class PromptBuilder {
   private readonly vault = new VaultManager(env.VAULT_PATH)
 
   /**
-   * Monta o system prompt do respondedor em quatro camadas.
+   * Monta o system prompt do respondedor em cinco camadas.
    * @param input Contexto necessário para montar o prompt.
    * @returns System prompt final.
    */
@@ -77,52 +79,13 @@ export class PromptBuilder {
       this.loadGlobalVaultContext()
     ])
 
-    const recentMessages = input.memory.recent_messages
-      .slice(-5)
-      .map((message) => `${message.role ?? 'unknown'}: ${message.content ?? ''}`)
-      .join('\n')
-
     const basePrompt = this.replacePromptVariables(configuredPrompt, input, agentName, companyName, agentTone)
     const prompt = [
-      `CAMADA 1 — PROMPT CONFIGURADO DO AGENTE
-${basePrompt || `Nome do atendente: ${agentName}
-Empresa: ${companyName}
-Tom e estilo: ${agentTone}`}
-
-Contexto operacional:
-Nome do atendente: ${agentName}
-Empresa: ${companyName}
-Tom e estilo: ${agentTone}
-
-${antiHallucinationRules}`,
-      `CAMADA 2 — SKILLS ATIVAS
-${skillsContext.content || 'Nenhuma skill ativa vinculada ao respondedor.'}`,
-      `CAMADA 3 — CONTEXTO DINÂMICO DO LEAD
-Telefone: ${input.lead.phone}
-Data/hora atual (${input.lead.timezone}): ${input.lead.currentTime}
-Nome: ${input.lead.name ?? 'não informado'}
-Cidade: ${input.lead.city ?? 'não informada'}
-Interesse: ${this.extractInterest(input.memory.lead_summary, input.vaultContext)}
-Estágio: ${input.lead.status ?? 'não informado'}
-Tags: ${input.lead.tags?.join(', ') || 'sem tags'}
-
-Resumo das últimas mensagens:
-${recentMessages || 'sem mensagens recentes'}
-
-Contexto relevante do vault:
-${input.vaultContext || 'sem contexto relevante'}
-
-Contexto global aprovado:
-${globalContext.content || 'sem contexto global cadastrado'}`,
-      `CAMADA 4 — INSTRUÇÃO DE SAÍDA
-Responda APENAS com o texto da mensagem final.
-Siga a formatação, ordem de atendimento e restrições definidas no prompt configurado do agente.
-Não use markdown, bullets ou headers quando o prompt configurado proibir; quando ele permitir, use apenas os formatos permitidos nele.
-${httpToolEnabled === 'true' ? 'Use a tool http_request quando houver webhook/API e dados confirmados para executar uma ação externa.' : 'Tools externas estão desativadas para este agente no momento.'}
-Faça no máximo UMA pergunta direta na resposta final.
-Se houver duas perguntas possíveis, escolha a mais importante para avançar a conversa agora.
-Se for curto e adequado para áudio, inclua [AUDIO_OK] ao final
-Máximo 3 parágrafos`
+      this.buildIdentityLayer({ basePrompt, agentName, companyName, agentTone, globalContext: globalContext.content }),
+      this.buildSkillsLayer(input.skillContext),
+      this.buildLeadDataLayer(input),
+      this.buildMcpToolsLayer(),
+      this.buildOutputLayer(httpToolEnabled)
     ].join('\n\n---\n\n')
 
     log.info({ system_prompt: prompt }, 'system prompt built')
@@ -172,8 +135,102 @@ Máximo 3 parágrafos`
     return 'não informado'
   }
 
+  /**
+   * Camada 1: identidade estática do atendente, prompt configurado e contexto global cacheável.
+   * @param input Dados estáticos do agente e da empresa.
+   * @returns Texto da camada de identidade.
+   */
+  private buildIdentityLayer(input: {
+    basePrompt: string
+    agentName: string
+    companyName: string
+    agentTone: string
+    globalContext: string
+  }): string {
+    const fallbackPrompt = `Nome do atendente: ${input.agentName}
+Empresa: ${input.companyName}
+Tom e estilo: ${input.agentTone}`
+
+    return `CAMADA 1 — IDENTIDADE DO ATENDENTE
+${input.basePrompt || fallbackPrompt}
+
+Contexto operacional:
+Nome do atendente: ${input.agentName}
+Empresa: ${input.companyName}
+Tom e estilo: ${input.agentTone}
+
+Contexto global aprovado:
+${input.globalContext || 'sem contexto global cadastrado'}
+
+${antiHallucinationRules}`
+  }
+
+  /**
+   * Camada 2: skills ativas e cacheáveis para o agente respondedor.
+   * @param skillsContent Conteúdo das skills vinculadas ao agente.
+   * @returns Texto da camada de skills.
+   */
+  private buildSkillsLayer(skillsContent: string): string {
+    return `CAMADA 2 — SKILLS ATIVAS
+${skillsContent || 'Nenhuma skill ativa vinculada ao respondedor.'}`
+  }
+
+  /**
+   * Camada 3: dados do lead atual, resumo histórico e notas relevantes do vault.
+   * @param input Contexto dinâmico do lead e memória carregada.
+   * @returns Texto da camada de dados do lead.
+   */
+  private buildLeadDataLayer(input: PromptBuilderInput): string {
+    return `CAMADA 3 — DADOS DO LEAD ATUAL
+Telefone: ${input.lead.phone}
+Data/hora atual (${input.lead.timezone}): ${input.lead.currentTime}
+Nome: ${input.lead.name ?? 'não informado'}
+Cidade: ${input.lead.city ?? 'não informada'}
+Interesse: ${this.extractInterest(input.memory.lead_summary, input.vaultContext)}
+Estágio: ${input.lead.status ?? 'não informado'}
+Tags: ${input.lead.tags?.join(', ') || 'sem tags'}
+
+Resumo histórico:
+${input.memory.history_summary || 'sem histórico sumarizado'}
+
+Notas relevantes:
+${input.memory.notes_summary || 'sem notas relevantes'}
+
+Contexto relevante do vault:
+${input.vaultContext || 'sem contexto relevante'}`
+  }
+
+  /**
+   * Camada 4: ferramentas MCP disponíveis para o agente; vazia quando a feature flag está desligada.
+   * @returns Texto da camada de tools MCP ou string vazia.
+   */
+  private buildMcpToolsLayer(): string {
+    if (!MCP_ENABLED) {
+      return ''
+    }
+
+    return `CAMADA 4 — FERRAMENTAS MCP DISPONÍVEIS
+Nenhuma ferramenta MCP registrada para este agente no momento.`
+  }
+
+  /**
+   * Camada 5: instruções finais de saída e limites de formato da resposta.
+   * @param httpToolEnabled Flag legada de tool HTTP hardcoded.
+   * @returns Texto da camada de saída.
+   */
+  private buildOutputLayer(httpToolEnabled: string): string {
+    return `CAMADA 5 — INSTRUÇÃO DE SAÍDA
+Responda APENAS com o texto da mensagem final.
+Siga a formatação, ordem de atendimento e restrições definidas no prompt configurado do agente.
+Não use markdown, bullets ou headers quando o prompt configurado proibir; quando ele permitir, use apenas os formatos permitidos nele.
+${httpToolEnabled === 'true' ? 'Use a tool http_request quando houver webhook/API e dados confirmados para executar uma ação externa.' : 'Tools externas estão desativadas para este agente no momento.'}
+Faça no máximo UMA pergunta direta na resposta final.
+Se houver duas perguntas possíveis, escolha a mais importante para avançar a conversa agora.
+Se for curto e adequado para áudio, inclua [AUDIO_OK] ao final
+Máximo 3 parágrafos`
+  }
+
   private async loadSkillsContext(agentId: string, selectedSkillIds: string[] | undefined): Promise<{
-    content: string
     skills: PromptBuildResult['skills']
   }> {
     const allRows = await this.skillsLoader.loadRowsForAgent(agentId)
@@ -182,13 +239,6 @@ Máximo 3 parágrafos`
       ? allRows.filter((skill) => selectedSet.has(skill.id))
       : allRows
     return {
-      content: rows.map((skill) => [
-        `## Skill: ${skill.name}`,
-        skill.description ? `Descrição: ${skill.description}` : null,
-        skill.when_to_use ? `Quando usar: ${skill.when_to_use}` : null,
-        `Prioridade: ${skill.priority ?? 'medium'}`,
-        skill.content
-      ].filter((item): item is string => Boolean(item)).join('\n')).join('\n\n---\n\n'),
       skills: rows.map((skill) => ({
         name: skill.name,
         priority: skill.priority,

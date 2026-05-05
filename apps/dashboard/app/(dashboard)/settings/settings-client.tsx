@@ -3,9 +3,9 @@
 import { useState, useCallback } from 'react'
 import { useToast } from '../../../components/ui/toast-provider'
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog'
-import type { Setting } from '../../../lib/api'
+import type { CalendarStatus, Setting } from '../../../lib/api'
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '/api/backend')
+const API_BASE = '/api/backend'
 
 const MODELS = ['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo', 'gpt-4-turbo']
 const TONES = [
@@ -26,6 +26,7 @@ const TIMEZONES = [
 
 interface SettingsClientProps {
   initialSettings: Setting[]
+  initialCalendarStatus: CalendarStatus
 }
 
 /** Resolve a URL pública da API para integrações externas. */
@@ -64,11 +65,14 @@ function toMap(settings: Setting[]): Record<string, string> {
  * @param props Settings iniciais da API.
  * @returns Formulário de configurações.
  */
-export function SettingsClient({ initialSettings }: SettingsClientProps): JSX.Element {
+export function SettingsClient({ initialSettings, initialCalendarStatus }: SettingsClientProps): JSX.Element {
   const { toast } = useToast()
   const [values, setValues] = useState<Record<string, string>>(toMap(initialSettings ?? []))
+  const [calendarStatus, setCalendarStatus] = useState(initialCalendarStatus)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [testingCalendar, setTestingCalendar] = useState(false)
+  const [confirmDisconnectCalendar, setConfirmDisconnectCalendar] = useState(false)
   const [testResult, setTestResult] = useState<'idle' | 'ok' | 'fail'>('idle')
   const [showApiKey, setShowApiKey] = useState(false)
   const [showWebhookSecret, setShowWebhookSecret] = useState(false)
@@ -89,6 +93,10 @@ export function SettingsClient({ initialSettings }: SettingsClientProps): JSX.El
         body: JSON.stringify(items)
       })
       if (!res.ok) throw new Error()
+      const refreshed = await fetch(`${API_BASE}/api/settings`, { cache: 'no-store' })
+      if (!refreshed.ok) throw new Error()
+      const savedSettings = await refreshed.json() as Setting[]
+      setValues(toMap(savedSettings))
       toast({ title: 'Configurações salvas', variant: 'success' })
     } catch {
       toast({ title: 'Erro ao salvar configurações', variant: 'danger' })
@@ -139,6 +147,43 @@ export function SettingsClient({ initialSettings }: SettingsClientProps): JSX.El
     }
   }
 
+  async function refreshCalendarStatus(): Promise<void> {
+    const response = await fetch(`${API_BASE}/api/mcp/google-calendar/status`, { cache: 'no-store' })
+    if (!response.ok) throw new Error('Falha ao atualizar status do Calendar')
+    setCalendarStatus(await response.json() as CalendarStatus)
+  }
+
+  async function testCalendarConnection(): Promise<void> {
+    setTestingCalendar(true)
+    try {
+      const response = await fetch(`${API_BASE}/mcp/google-calendar/tools`, { cache: 'no-store' })
+      if (!response.ok) throw new Error('Falha ao testar Google Calendar')
+      const body = await response.json() as { tools?: unknown[] }
+      toast({ title: `${body.tools?.length ?? 0} tools do Calendar disponíveis`, variant: 'success' })
+      await refreshCalendarStatus()
+    } catch {
+      toast({ title: 'Erro ao testar Google Calendar', variant: 'danger' })
+    } finally {
+      setTestingCalendar(false)
+    }
+  }
+
+  async function disconnectCalendar(): Promise<void> {
+    if (!calendarStatus.credential?.id) return
+    try {
+      const response = await fetch(`${API_BASE}/api/mcp/credentials/${encodeURIComponent(calendarStatus.credential.id)}`, {
+        method: 'DELETE'
+      })
+      if (!response.ok) throw new Error('Falha ao desconectar Calendar')
+      await refreshCalendarStatus()
+      toast({ title: 'Google Calendar desconectado', variant: 'success' })
+    } catch {
+      toast({ title: 'Erro ao desconectar Google Calendar', variant: 'danger' })
+    } finally {
+      setConfirmDisconnectCalendar(false)
+    }
+  }
+
   /** Mascaramento de valor sensível */
   function mask(value: string, show: boolean): string {
     if (!value) return ''
@@ -148,6 +193,15 @@ export function SettingsClient({ initialSettings }: SettingsClientProps): JSX.El
   }
 
   const webhookUrl = `${resolvePublicApiUrl()}/api/webhook?sync=true`
+  const calendarConnectedAt = calendarStatus.credential?.granted_at
+    ? new Intl.DateTimeFormat('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(new Date(calendarStatus.credential.granted_at))
+    : null
 
   return (
     <div className="space-y-8 max-w-3xl">
@@ -162,6 +216,56 @@ export function SettingsClient({ initialSettings }: SettingsClientProps): JSX.El
           {saving ? 'Salvando…' : 'Salvar tudo'}
         </button>
       </div>
+
+      {/* SEÇÃO: Integrações */}
+      <Section title="Integrações" description="Conexões externas usadas pelas ferramentas MCP">
+        <div className="rounded-lg border border-line bg-canvas p-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className={calendarStatus.connected ? 'text-success' : 'text-muted'}>
+                  {calendarStatus.connected ? '●' : '○'}
+                </span>
+                <h4 className="font-semibold text-ink">Google Calendar</h4>
+              </div>
+              {calendarStatus.connected ? (
+                <div className="mt-2 space-y-1 text-xs text-muted">
+                  <p>Conta: {calendarStatus.account_email ?? 'Conta Google conectada'}</p>
+                  <p>Conectado em: {calendarConnectedAt ?? 'Data indisponível'}</p>
+                  <p>{calendarStatus.tools_count} tools disponíveis</p>
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-muted">Agenda ainda não conectada.</p>
+              )}
+            </div>
+
+            {calendarStatus.connected ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={testCalendarConnection}
+                  disabled={testingCalendar}
+                  className="focus-ring h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted transition hover:text-ink disabled:opacity-60"
+                >
+                  {testingCalendar ? 'Testando…' : 'Testar Conexão'}
+                </button>
+                <button
+                  onClick={() => setConfirmDisconnectCalendar(true)}
+                  className="focus-ring h-8 rounded-md border border-danger/40 bg-danger/10 px-3 text-xs text-danger transition hover:bg-danger/20"
+                >
+                  Desconectar
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { window.location.href = `${resolvePublicApiUrl()}/api/mcp/google-calendar/auth/start` }}
+                className="focus-ring h-8 rounded-md border border-accent/40 bg-accent/10 px-3 text-xs font-semibold text-accent transition hover:bg-accent/20"
+              >
+                Conectar com Google Calendar
+              </button>
+            )}
+          </div>
+        </div>
+      </Section>
 
       {/* SEÇÃO: API */}
       <Section title="API" description="Conexão com o provedor de LLM (OpenAI compatível)">
@@ -425,6 +529,15 @@ export function SettingsClient({ initialSettings }: SettingsClientProps): JSX.El
             void clearAllHistory()
           }
         }}
+      />
+
+      <ConfirmDialog
+        open={confirmDisconnectCalendar}
+        onOpenChange={setConfirmDisconnectCalendar}
+        title="Desconectar Google Calendar"
+        description="O agente deixará de acessar sua agenda até você conectar novamente."
+        confirmLabel="Desconectar"
+        onConfirm={() => { void disconnectCalendar() }}
       />
     </div>
   )

@@ -7,6 +7,7 @@
     "dev": "bun --watch src/main.ts",
     "build": "bun build src/main.ts --outdir dist --target bun",
     "start": "bun dist/main.js",
+    "drizzle-kit": "node node_modules/drizzle-kit/bin.cjs",
     "typecheck": "bun tsc --noEmit"
   },
   "dependencies": {
@@ -17,6 +18,7 @@
     "bullmq": "^5.0.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^4.26.0",
+    "googleapis": "^171.4.0",
     "ioredis": "^5.4.0",
     "openai": "^4.28.0",
     "pino": "^9.6.0",

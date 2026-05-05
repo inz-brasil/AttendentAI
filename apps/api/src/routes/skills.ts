@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../db/client'
-import { skills } from '../db/schema'
+import { agentSkills, skills } from '../db/schema'
 
 const skillParamsSchema = z.object({ id: z.string().min(1) })
 const skillBodySchema = z.object({
@@ -49,6 +49,7 @@ export async function registerSkillRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete('/api/skills/:id', async (request) => {
     const params = skillParamsSchema.parse(request.params)
+    await db.delete(agentSkills).where(eq(agentSkills.skill_id, params.id))
     await db.delete(skills).where(eq(skills.id, params.id))
     return { success: true }
   })

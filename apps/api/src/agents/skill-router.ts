@@ -12,6 +12,7 @@ export interface SkillCandidate {
   description: string | null
   when_to_use: string | null
   priority: string | null
+  content_summary: string
 }
 
 export interface SkillRouterInput extends AgentInput {
@@ -24,23 +25,27 @@ export interface SkillRouterInput extends AgentInput {
 
 export interface SkillRouterOutput extends AgentRunMetadata {
   selected_skill_ids: string[]
+  context_summary: string
   reason: string
 }
 
 const skillRouterSystemPrompt = `Você é um roteador de skills para atendimento WhatsApp.
-Escolha apenas as skills necessárias para a próxima resposta do agente.
+Escolha apenas as skills necessárias para a próxima resposta do agente e sintetize o contexto útil.
 Use o resumo da conversa, a última mensagem e a classificação.
 Selecione no máximo 3 skills. Se nenhuma skill específica for necessária, selecione atendimento geral se existir.
+Leia o conteúdo das skills, mas NÃO copie a skill inteira. Gere um contexto curto e mastigado para o agente respondedor.
 Retorne APENAS JSON válido, sem markdown.
 
 Schema:
 {
   "selected_skill_ids": ["id-da-skill"],
+  "context_summary": "orientações essenciais para responder agora, no máximo 1200 caracteres",
   "reason": "motivo curto"
 }`
 
 const skillRouterOutputSchema = z.object({
   selected_skill_ids: z.array(z.string().min(1)).max(3),
+  context_summary: z.string().max(1200).default(''),
   reason: z.string().min(1)
 })
 
@@ -75,7 +80,7 @@ export class SkillRouterAgent extends BaseAgent<SkillRouterInput, SkillRouterOut
           `Classificação: ${JSON.stringify(input.classification)}`,
           `Resumo da conversa:\n${input.history_summary || 'sem resumo'}`,
           `Última mensagem recebida:\n${input.message}`,
-          `Skills candidatas:\n${JSON.stringify(input.candidates)}`
+          `Skills candidatas com resumo cacheado:\n${JSON.stringify(input.candidates)}`
         ].join('\n\n')
       }
     ]
@@ -92,12 +97,14 @@ export class SkillRouterAgent extends BaseAgent<SkillRouterInput, SkillRouterOut
       const parsed = skillRouterOutputSchema.parse(JSON.parse(extractJson(text)))
       return {
         selected_skill_ids: parsed.selected_skill_ids,
+        context_summary: parsed.context_summary,
         reason: parsed.reason,
         ...metadata
       }
     } catch {
       return {
         selected_skill_ids: [],
+        context_summary: '',
         reason: 'fallback_json_invalido',
         ...metadata
       }

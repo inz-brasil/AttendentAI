@@ -4,6 +4,7 @@ import rateLimit from '@fastify/rate-limit'
 import websocket from '@fastify/websocket'
 import Fastify from 'fastify'
 import { ZodError } from 'zod'
+import { API_RATE_LIMIT_PER_MINUTE } from './config/constants'
 import { env } from './config/env'
 import { closeDb } from './db/client'
 import { registerAgentRoutes } from './routes/agents'
@@ -11,12 +12,15 @@ import { registerAgentSkillRoutes } from './routes/agent-skills'
 import { registerConversationRoutes } from './routes/conversations'
 import { registerHealthRoutes } from './routes/health'
 import { registerLeadRoutes } from './routes/leads'
+import { registerMcpRoutes } from './routes/mcp'
 import { registerPlaygroundRoutes } from './routes/playground'
 import { registerSettingRoutes } from './routes/settings'
 import { registerSkillRoutes } from './routes/skills'
 import { registerTraceRoutes } from './routes/traces'
 import { registerVaultRoutes } from './routes/vault'
 import { registerWebhookRoutes } from './routes/webhook'
+import { registerGoogleCalendarMcpServer } from './mcp-servers/google-calendar'
+import { registerMockMcpServer } from './mcp-servers/mock'
 import { registerWebSocketServer } from './websocket/server'
 
 const requestStartTimes = new WeakMap<object, number>()
@@ -50,7 +54,7 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
 
   await app.register(cors, { origin: true })
   await app.register(rateLimit, {
-    max: 100,
+    max: API_RATE_LIMIT_PER_MINUTE,
     timeWindow: '1 minute',
     errorResponseBuilder: (_request, context) => ({
       error: 'Rate limit exceeded',
@@ -119,6 +123,9 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
   await registerVaultRoutes(app)
   await registerTraceRoutes(app)
   await registerPlaygroundRoutes(app)
+  await registerMcpRoutes(app)
+  await registerMockMcpServer(app)
+  await registerGoogleCalendarMcpServer(app)
 
   return app
 }

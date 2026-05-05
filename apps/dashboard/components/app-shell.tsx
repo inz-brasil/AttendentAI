@@ -103,6 +103,20 @@ function TracesIcon({ className }: NavIconProps): JSX.Element {
   )
 }
 
+function McpIcon({ className }: NavIconProps): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M7 8a4 4 0 0 1 8 0v1" />
+      <path d="M17 16a4 4 0 0 1-8 0v-1" />
+      <path d="M8 12h8" />
+      <path d="M5 12H3" />
+      <path d="M21 12h-2" />
+      <circle cx="7" cy="8" r="1.5" />
+      <circle cx="17" cy="16" r="1.5" />
+    </svg>
+  )
+}
+
 const navItems = [
   { href: '/', label: 'Home', icon: HomeIcon },
   { href: '/leads', label: 'Leads', icon: LeadsIcon },
@@ -111,6 +125,7 @@ const navItems = [
   { href: '/skills', label: 'Skills', icon: SkillsIcon },
   { href: '/vault', label: 'Vault', icon: VaultIcon },
   { href: '/traces', label: 'Logs', icon: TracesIcon },
+  { href: '/mcp', label: 'MCP', icon: McpIcon },
   { href: '/playground', label: 'Playground', icon: PlaygroundIcon },
   { href: '/settings', label: 'Settings', icon: SettingsIcon }
 ]
