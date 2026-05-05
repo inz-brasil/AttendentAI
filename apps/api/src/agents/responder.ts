@@ -4,7 +4,6 @@ import type {
   ChatCompletionMessageToolCall,
   ChatCompletionTool
 } from 'openai/resources/chat/completions'
-import { MCP_ENABLED } from '../config/constants'
 import { env } from '../config/env'
 import { MCPRegistry } from '../mcp/registry'
 import { ToolExecutor } from '../mcp/tool-executor'
@@ -25,9 +24,15 @@ export interface ResponderInput extends AgentInput {
   system_prompt: string
   message: string
   lead_name: string
+  model: string
   classification: ClassificationOutput
   tools_enabled: boolean
+  mcp_enabled: boolean
   mcp_tools: ChatCompletionTool[]
+  recent_messages: Array<{
+    role: 'user' | 'assistant' | null
+    content: string | null
+  }>
 }
 
 export interface ResponderOutput extends AgentRunMetadata {
@@ -55,17 +60,27 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
    * @returns Lista de mensagens para a OpenAI API.
    */
   protected override buildMessages(input: ResponderInput): ChatCompletionMessageParam[] {
+    const recentMessages = input.recent_messages
+      .filter((message) => message.role && message.content?.trim())
+      .slice(-8)
+      .map((message): ChatCompletionMessageParam => ({
+        role: message.role === 'assistant' ? 'assistant' : 'user',
+        content: message.content ?? ''
+      }))
+
     return [
       {
         role: 'system',
         content: input.system_prompt || this.systemPrompt
       },
+      ...recentMessages,
       {
         role: 'user',
         content: [
           `Nome do lead: ${input.lead_name || 'não informado'}`,
           `Classificação: ${JSON.stringify(input.classification)}`,
-          `Mensagem recebida: ${input.message}`
+          `Mensagem recebida agora: ${input.message}`,
+          'Não repita uma saudação ou pergunta que você já enviou nas mensagens anteriores.'
         ].join('\n')
       }
     ]
@@ -78,7 +93,7 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
    */
   protected override getTools(input: ResponderInput): ChatCompletionTool[] {
     const tools = input.tools_enabled ? [httpRequestToolDefinition] : []
-    return MCP_ENABLED ? [...tools, ...input.mcp_tools] : tools
+    return input.mcp_enabled ? [...tools, ...input.mcp_tools] : tools
   }
 
   /**
@@ -92,7 +107,7 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
     input: ResponderInput
   ): Promise<AgentToolTrace> {
     const startedAt = Date.now()
-    if (MCP_ENABLED && this.mcpRegistry.parseToolCall(toolCall.function.name)) {
+    if (input.mcp_enabled && this.mcpRegistry.parseToolCall(toolCall.function.name)) {
       const [result] = await this.toolExecutor.execute([toolCall])
       return {
         tool: toolCall.function.name,

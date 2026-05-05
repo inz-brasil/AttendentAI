@@ -72,6 +72,10 @@ export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
     await db.delete(messages).where(eq(messages.lead_phone, phone))
     await db.delete(conversations).where(eq(conversations.lead_phone, phone))
     await db
+      .update(leadMemoryMeta)
+      .set({ last_compaction_at: null, total_compactions: 0, total_messages_summarized: 0 })
+      .where(eq(leadMemoryMeta.phone, phone))
+    await db
       .update(leads)
       .set({ total_messages: 0, last_message_at: null, updated_at: new Date() })
       .where(eq(leads.phone, phone))
@@ -91,6 +95,7 @@ export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
     const { phone } = leadParamsSchema.parse(request.params)
     await db.delete(messages).where(eq(messages.lead_phone, phone))
     await db.delete(conversations).where(eq(conversations.lead_phone, phone))
+    await db.delete(leadMemoryMeta).where(eq(leadMemoryMeta.phone, phone))
     await db.delete(leads).where(eq(leads.phone, phone))
     try {
       await vault.delete(phone)
