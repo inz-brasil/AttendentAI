@@ -2,7 +2,7 @@
   "app": {
     "name": "AttendentAI",
     "tagline": "Support console",
-    "platform": "WhatsApp Agent Platform"
+    "platform": "Console"
   },
   "nav": {
     "home": "Home",
@@ -128,7 +128,7 @@
   "settings": {
     "eyebrow": "System",
     "title": "Settings",
-    "subtitle": "Everything saves without restarting the server",
+    "subtitle": "Organize business portfolios, channels and system preferences",
     "evolution": "Evolution",
     "automation": "Support",
     "queue": "Queue",
@@ -145,8 +145,10 @@
     "onboardingDescription": "Guided setup for company, tenant, channels and Evolution webhook.",
     "setupBusiness": "Company",
     "setupBusinessDescription": "Name, context, products, policies and support tone.",
-    "setupTenant": "Tenant",
-    "setupWebhook": "Webhook",
+    "setupTenant": "Portfolios",
+    "setupWebhook": "Channels",
+    "portfolioCount": "{{count}} configured portfolio(s)",
+    "channelCount": "{{count}} configured channel(s)",
     "startSetup": "Start onboarding",
     "continueSetup": "Continue setup",
     "webhookTitle": "Evolution webhook URL",
@@ -159,12 +161,20 @@
     "stopSync": "Stop sync",
     "authOutput": "Login output",
     "syncOutput": "Sync output",
+    "saveAsPortfolio": "Save to portfolio",
+    "portfoliosTitle": "Registered portfolios",
+    "noPortfolioSummary": "No business summary configured",
+    "channelsTitle": "Linked channels",
+    "portfolio": "Portfolio",
+    "channelType": "Channel type",
+    "channelName": "Channel name",
+    "addChannel": "Add channel",
     "tabs": {
       "onboarding": "Onboarding",
-      "appearance": "Preferences",
-      "business": "Company",
-      "tenants": "Companies and tenants",
-      "evolution_instances": "Evolution instances",
+      "appearance": "Settings",
+      "business": "Business portfolio",
+      "tenants": "Portfolios",
+      "evolution_instances": "WhatsApp channels",
       "evolution": "Default Evolution",
       "wacli": "WACLI",
       "automation": "Support",
@@ -175,9 +185,9 @@
       "blacklist": "Blacklist"
     },
     "descriptions": {
-      "business": "Company information becomes structured text and is saved into the tenant vault.",
-      "tenants": "Register separate companies for multi-tenant isolation.",
-      "evolution_instances": "Manage channels and phone numbers served by different Evolution instances.",
+      "business": "The company identity. Everything the assistant needs to know is attached to this portfolio and saved into the vault.",
+      "tenants": "Portfolios isolate companies, channels, prompts and operational data.",
+      "evolution_instances": "Add phone numbers, Evolution instances and WACLI as assets linked to a business portfolio.",
       "evolution": "Default config used when no specific instance is selected.",
       "wacli": "Login, reconnection, active phone and real WhatsApp history sync.",
       "automation": "Schedule, human pause, blacklist and global automation switch.",

@@ -12,15 +12,10 @@ import {
   Eye,
   Globe2,
   KeyRound,
-  Languages,
-  Moon,
-  Network,
   PlugZap,
   RefreshCw,
   Settings2,
   Shield,
-  Smartphone,
-  Sun,
   TerminalSquare,
   Workflow
 } from 'lucide-react'
@@ -56,14 +51,31 @@ interface SettingsNavItem {
   icon: typeof Settings2
 }
 
+interface PortfolioItem {
+  id: string
+  name: string
+  summary: string
+  website: string
+  tone: string
+}
+
+interface ChannelItem {
+  id: string
+  portfolio_id: string
+  name: string
+  instance: string
+  phone: string
+  api_url: string
+  local_url: string
+  api_key_ref: string
+  type: 'evolution' | 'wacli'
+}
+
 const settingsNav: SettingsNavItem[] = [
   { id: 'onboarding', icon: Workflow },
   { id: 'appearance', icon: Eye },
   { id: 'business', icon: Building2 },
-  { id: 'tenants', icon: Network },
   { id: 'evolution_instances', icon: PlugZap },
-  { id: 'evolution', icon: Smartphone },
-  { id: 'wacli', icon: TerminalSquare },
   { id: 'automation', icon: Bot },
   { id: 'queue', icon: Database },
   { id: 'audio', icon: Globe2 },
@@ -112,6 +124,17 @@ export function SettingsClient(_props: SettingsClientProps): JSX.Element {
   const [blacklistReason, setBlacklistReason] = useState('')
   const [testNumber, setTestNumber] = useState('')
   const [testText, setTestText] = useState('')
+  const [channelDraft, setChannelDraft] = useState<ChannelItem>({
+    id: '',
+    portfolio_id: 'default',
+    name: '',
+    instance: '',
+    phone: '',
+    api_url: '',
+    local_url: '',
+    api_key_ref: '',
+    type: 'evolution'
+  })
 
   const theme = useUiStore((state) => state.theme)
   const language = useUiStore((state) => state.language)
@@ -192,6 +215,8 @@ export function SettingsClient(_props: SettingsClientProps): JSX.Element {
 
   const businessConfig = configs.business ?? {}
   const webhookUrl = buildWebhookUrl(String(businessConfig.tenant_id ?? 'default'))
+  const portfolioItems = getPortfolioItems(configs.tenants?.items, businessConfig)
+  const channelItems = parseJsonArray<ChannelItem>(configs.evolution_instances?.items)
 
   function updateDraft(section: ConfigSectionName, key: string, value: string): void {
     setDrafts((current) => ({
@@ -207,6 +232,35 @@ export function SettingsClient(_props: SettingsClientProps): JSX.Element {
     const draft = drafts[section] ?? {}
     const data = Object.fromEntries(Object.entries(draft).map(([key, value]) => [key, parseValue(value)]))
     updateConfigMutation.mutate({ section, data })
+  }
+
+  function saveCurrentPortfolio(): void {
+    const current: PortfolioItem = {
+      id: String(businessConfig.tenant_id ?? 'default'),
+      name: String(businessConfig.company_name ?? ''),
+      summary: String(businessConfig.summary ?? ''),
+      website: String(businessConfig.website ?? ''),
+      tone: String(businessConfig.tone ?? '')
+    }
+    const next = [current, ...portfolioItems.filter((item) => item.id !== current.id)]
+    updateConfigMutation.mutate({ section: 'tenants', data: { items: JSON.stringify(next, null, 2) } })
+  }
+
+  function addChannel(): void {
+    const id = channelDraft.id.trim() || `${channelDraft.portfolio_id}-${channelDraft.instance || channelDraft.phone || Date.now()}`
+    const next = [{ ...channelDraft, id }, ...channelItems.filter((item) => item.id !== id)]
+    updateConfigMutation.mutate({ section: 'evolution_instances', data: { items: JSON.stringify(next, null, 2) } })
+    setChannelDraft({
+      id: '',
+      portfolio_id: String(businessConfig.tenant_id ?? 'default'),
+      name: '',
+      instance: '',
+      phone: '',
+      api_url: '',
+      local_url: '',
+      api_key_ref: '',
+      type: 'evolution'
+    })
   }
 
   function changeLanguage(value: string): void {
@@ -253,6 +307,8 @@ export function SettingsClient(_props: SettingsClientProps): JSX.Element {
             <OnboardingPanel
               businessConfig={businessConfig}
               webhookUrl={webhookUrl}
+              portfolioCount={portfolioItems.length}
+              channelCount={channelItems.length}
               onStart={() => setSelectedTab('business')}
             />
           )}
@@ -284,7 +340,35 @@ export function SettingsClient(_props: SettingsClientProps): JSX.Element {
             </div>
           )}
 
-          {isConfigSection(selectedTab) && selectedTab !== 'wacli' && (
+          {selectedTab === 'business' && (
+            <PortfolioPanel
+              config={businessConfig}
+              draft={drafts.business ?? {}}
+              portfolios={portfolioItems}
+              saving={updateConfigMutation.isPending}
+              onChange={(key, value) => updateDraft('business', key, value)}
+              onSave={() => saveSection('business')}
+              onSavePortfolio={saveCurrentPortfolio}
+            />
+          )}
+
+          {selectedTab === 'evolution_instances' && (
+            <ChannelsPanel
+              channels={channelItems}
+              portfolios={portfolioItems}
+              webhookUrl={webhookUrl}
+              draft={channelDraft}
+              status={wacliQuery.data}
+              authStatus={wacliAuthQuery.data}
+              syncStatus={wacliSyncQuery.data}
+              saving={updateConfigMutation.isPending || wacliActionMutation.isPending}
+              onDraftChange={(key, value) => setChannelDraft((current) => ({ ...current, [key]: value }))}
+              onAdd={addChannel}
+              onWacliAction={(action) => wacliActionMutation.mutate(action)}
+            />
+          )}
+
+          {isConfigSection(selectedTab) && !['business', 'evolution_instances', 'wacli', 'tenants', 'evolution'].includes(selectedTab) && (
             <ConfigPanel
               section={selectedTab}
               config={configs[selectedTab] ?? {}}
@@ -292,7 +376,6 @@ export function SettingsClient(_props: SettingsClientProps): JSX.Element {
               saving={updateConfigMutation.isPending}
               onChange={(key, value) => updateDraft(selectedTab, key, value)}
               onSave={() => saveSection(selectedTab)}
-              extra={selectedTab === 'evolution_instances' ? <WebhookPanel webhookUrl={webhookUrl} /> : null}
             />
           )}
 
@@ -344,7 +427,19 @@ export function SettingsClient(_props: SettingsClientProps): JSX.Element {
   )
 }
 
-function OnboardingPanel({ businessConfig, webhookUrl, onStart }: { businessConfig: Record<string, unknown>; webhookUrl: string; onStart: () => void }): JSX.Element {
+function OnboardingPanel({
+  businessConfig,
+  webhookUrl,
+  portfolioCount,
+  channelCount,
+  onStart
+}: {
+  businessConfig: Record<string, unknown>
+  webhookUrl: string
+  portfolioCount: number
+  channelCount: number
+  onStart: () => void
+}): JSX.Element {
   const { t } = useTranslation()
   const configured = Boolean(businessConfig.company_name)
   return (
@@ -352,13 +447,173 @@ function OnboardingPanel({ businessConfig, webhookUrl, onStart }: { businessConf
       <SectionHeader icon={Workflow} title={t('settings.tabs.onboarding')} description={t('settings.onboardingDescription')} />
       <div className="mt-5 grid gap-3 md:grid-cols-3">
         <SetupStep done={configured} title={t('settings.setupBusiness')} description={String(businessConfig.company_name || t('settings.setupBusinessDescription'))} />
-        <SetupStep done={Boolean(businessConfig.tenant_id)} title={t('settings.setupTenant')} description={String(businessConfig.tenant_id || 'default')} />
-        <SetupStep done={Boolean(webhookUrl)} title={t('settings.setupWebhook')} description={webhookUrl} />
+        <SetupStep done={portfolioCount > 0} title={t('settings.setupTenant')} description={t('settings.portfolioCount', { count: portfolioCount })} />
+        <SetupStep done={channelCount > 0} title={t('settings.setupWebhook')} description={channelCount > 0 ? t('settings.channelCount', { count: channelCount }) : webhookUrl} />
       </div>
       <button type="button" onClick={onStart} className="save-btn mt-5">
         {configured ? t('settings.continueSetup') : t('settings.startSetup')}
       </button>
     </div>
+  )
+}
+
+function PortfolioPanel({
+  config,
+  draft,
+  portfolios,
+  saving,
+  onChange,
+  onSave,
+  onSavePortfolio
+}: {
+  config: Record<string, unknown>
+  draft: Record<string, string>
+  portfolios: PortfolioItem[]
+  saving: boolean
+  onChange: (key: string, value: string) => void
+  onSave: () => void
+  onSavePortfolio: () => void
+}): JSX.Element {
+  const { t } = useTranslation()
+  const dirty = Object.keys(draft).length > 0
+  const fields = ['tenant_id', 'company_name', 'summary', 'products_services', 'target_audience', 'tone', 'policies', 'website']
+  return (
+    <div className="space-y-4">
+      <div className="surface rounded-2xl p-5">
+        <SectionHeader icon={Building2} title={t('settings.tabs.business')} description={t('settings.descriptions.business')} />
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          {fields.map((key) => {
+            const multiline = ['summary', 'products_services', 'target_audience', 'policies'].includes(key)
+            return (
+              <label key={key} className={multiline ? 'md:col-span-2' : ''}>
+                <span className="mb-1 block font-mono text-xs text-muted">{key}</span>
+                {multiline ? (
+                  <textarea value={draft[key] ?? formatValue(config[key])} onChange={(event) => onChange(key, event.target.value)} rows={4} className="field-input resize-y" />
+                ) : (
+                  <input value={draft[key] ?? formatValue(config[key])} onChange={(event) => onChange(key, event.target.value)} className="field-input" />
+                )}
+              </label>
+            )
+          })}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button type="button" onClick={onSave} disabled={!dirty || saving} className="save-btn">{t('common.save')}</button>
+          <button type="button" onClick={onSavePortfolio} disabled={saving} className="focus-ring min-h-11 rounded-xl border border-line bg-elevated px-4 text-sm">
+            {t('settings.saveAsPortfolio')}
+          </button>
+        </div>
+      </div>
+
+      <div className="surface rounded-2xl p-5">
+        <h3 className="text-sm font-semibold">{t('settings.portfoliosTitle')}</h3>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {portfolios.map((portfolio) => (
+            <div key={portfolio.id} className="rounded-xl border border-line bg-elevated p-4">
+              <div className="text-sm font-semibold">{portfolio.name || portfolio.id}</div>
+              <div className="mt-1 font-mono text-xs text-muted">{portfolio.id}</div>
+              <p className="mt-3 line-clamp-3 text-xs leading-5 text-muted">{portfolio.summary || t('settings.noPortfolioSummary')}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ChannelsPanel({
+  channels,
+  portfolios,
+  webhookUrl,
+  draft,
+  status,
+  authStatus,
+  syncStatus,
+  saving,
+  onDraftChange,
+  onAdd,
+  onWacliAction
+}: {
+  channels: ChannelItem[]
+  portfolios: PortfolioItem[]
+  webhookUrl: string
+  draft: ChannelItem
+  status: Awaited<ReturnType<typeof api.getWacliStatus>> | undefined
+  authStatus: WacliProcessStatus | undefined
+  syncStatus: WacliProcessStatus | undefined
+  saving: boolean
+  onDraftChange: (key: keyof ChannelItem, value: string) => void
+  onAdd: () => void
+  onWacliAction: (action: 'enable' | 'disable' | 'auth_start' | 'auth_stop' | 'sync_start' | 'sync_stop') => void
+}): JSX.Element {
+  const { t } = useTranslation()
+  return (
+    <div className="space-y-4">
+      <div className="surface rounded-2xl p-5">
+        <SectionHeader icon={PlugZap} title={t('settings.tabs.evolution_instances')} description={t('settings.descriptions.evolution_instances')} />
+        <WebhookPanel webhookUrl={webhookUrl} />
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <label>
+            <span className="mb-1 block text-sm text-muted">{t('settings.portfolio')}</span>
+            <select value={draft.portfolio_id} onChange={(event) => onDraftChange('portfolio_id', event.target.value)} className="field-input">
+              {portfolios.map((portfolio) => <option key={portfolio.id} value={portfolio.id}>{portfolio.name || portfolio.id}</option>)}
+            </select>
+          </label>
+          <label>
+            <span className="mb-1 block text-sm text-muted">{t('settings.channelType')}</span>
+            <select value={draft.type} onChange={(event) => onDraftChange('type', event.target.value)} className="field-input">
+              <option value="evolution">Evolution</option>
+              <option value="wacli">WACLI</option>
+            </select>
+          </label>
+          <ChannelInput label={t('settings.channelName')} value={draft.name} onChange={(value) => onDraftChange('name', value)} />
+          <ChannelInput label="instance" value={draft.instance} onChange={(value) => onDraftChange('instance', value)} />
+          <ChannelInput label={t('clients.phone')} value={draft.phone} onChange={(value) => onDraftChange('phone', value)} />
+          <ChannelInput label="api_url" value={draft.api_url} onChange={(value) => onDraftChange('api_url', value)} />
+          <ChannelInput label="local_url" value={draft.local_url} onChange={(value) => onDraftChange('local_url', value)} />
+          <ChannelInput label="api_key_ref" value={draft.api_key_ref} onChange={(value) => onDraftChange('api_key_ref', value)} />
+        </div>
+        <button type="button" onClick={onAdd} disabled={saving || !draft.name.trim()} className="save-btn mt-4">
+          {t('settings.addChannel')}
+        </button>
+      </div>
+
+      <div className="surface rounded-2xl p-5">
+        <h3 className="text-sm font-semibold">{t('settings.channelsTitle')}</h3>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {channels.map((channel) => (
+            <div key={channel.id} className="rounded-xl border border-line bg-elevated p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold">{channel.name}</div>
+                <span className="rounded-full border border-line px-2 py-1 text-xs text-muted">{channel.type}</span>
+              </div>
+              <div className="mt-2 font-mono text-xs text-muted">{channel.instance || channel.phone}</div>
+              <div className="mt-1 text-xs text-muted">{t('settings.portfolio')}: {channel.portfolio_id}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <WacliPanel
+        config={{}}
+        draft={{}}
+        status={status}
+        authStatus={authStatus}
+        syncStatus={syncStatus}
+        saving={saving}
+        onChange={() => undefined}
+        onSave={() => undefined}
+        onAction={onWacliAction}
+      />
+    </div>
+  )
+}
+
+function ChannelInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }): JSX.Element {
+  return (
+    <label>
+      <span className="mb-1 block text-sm text-muted">{label}</span>
+      <input value={value} onChange={(event) => onChange(event.target.value)} className="field-input" />
+    </label>
   )
 }
 
@@ -597,6 +852,32 @@ function ProcessOutput({ title, status }: { title: string; status: WacliProcessS
 function sectionIcon(section: ConfigSectionName): typeof Settings2 {
   const item = settingsNav.find((entry) => entry.id === section)
   return item?.icon ?? Settings2
+}
+
+function getPortfolioItems(value: unknown, businessConfig: Record<string, unknown>): PortfolioItem[] {
+  const saved = parseJsonArray<PortfolioItem>(value)
+  if (saved.length > 0) return saved
+  return [{
+    id: String(businessConfig.tenant_id ?? 'default'),
+    name: String(businessConfig.company_name ?? ''),
+    summary: String(businessConfig.summary ?? ''),
+    website: String(businessConfig.website ?? ''),
+    tone: String(businessConfig.tone ?? '')
+  }]
+}
+
+function parseJsonArray<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value.filter((item): item is T => typeof item === 'object' && item !== null)
+  if (typeof value !== 'string' || !value.trim()) return []
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item): item is T => typeof item === 'object' && item !== null)
+    }
+  } catch {
+    return []
+  }
+  return []
 }
 
 function buildWebhookUrl(tenantId: string): string {

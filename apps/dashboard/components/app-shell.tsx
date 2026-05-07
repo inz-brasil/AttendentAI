@@ -11,8 +11,6 @@ import {
   BookOpen,
   Bot,
   Bug,
-  ChevronLeft,
-  ChevronRight,
   Home,
   Menu,
   MessageSquare,
@@ -38,7 +36,6 @@ const navItems: NavItem[] = [
   { href: '/agents', key: 'agents', icon: Bot },
   { href: '/skills', key: 'knowledge', icon: BookOpen },
   { href: '/traces', key: 'analytics', icon: BarChart3 },
-  { href: '/settings', key: 'settings', icon: Settings },
   { href: '/debug', key: 'debug', icon: Bug, debugOnly: true }
 ]
 
@@ -68,7 +65,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }): JSX.Elemen
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           aria-label={sidebarCollapsed ? t('shell.expand') : t('shell.collapse')}
         >
-          {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          <PanelLeftClose className={sidebarCollapsed ? 'h-4 w-4 rotate-180' : 'h-4 w-4'} />
         </button>
       </div>
 
@@ -106,7 +103,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }): JSX.Elemen
           ].join(' ')}
         >
           <Settings className="h-4 w-4" strokeWidth={1.8} />
-          {!sidebarCollapsed && <span>{t('settings.preferences')}</span>}
+          {!sidebarCollapsed && <span>{t('nav.settings')}</span>}
         </Link>
       </div>
     </div>
@@ -135,52 +132,38 @@ export function AppShell({ children }: { children: ReactNode }): JSX.Element {
       </aside>
 
       <div className={sidebarCollapsed ? 'lg:pl-20' : 'lg:pl-72'}>
-        <header className="sticky top-0 z-10 border-b border-line bg-canvas/88 backdrop-blur">
-          <div className="flex min-h-16 items-center justify-between gap-3 px-4 sm:px-5 lg:px-8">
-            <div className="flex min-w-0 items-center gap-3">
-              <Dialog.Root open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-                <Dialog.Trigger asChild>
+        <Dialog.Root open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+          <Dialog.Trigger asChild>
+            <button
+              type="button"
+              className="focus-ring fixed left-4 top-4 z-30 grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line bg-panel text-ink shadow-panel lg:hidden"
+              aria-label={t('shell.openMenu')}
+            >
+              <Menu className="h-5 w-5" strokeWidth={1.8} />
+            </button>
+          </Dialog.Trigger>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 z-40 bg-canvas/70 backdrop-blur-sm lg:hidden" />
+            <Dialog.Content className="fixed inset-y-0 left-0 z-50 flex w-[min(22rem,92vw)] flex-col border-r border-line bg-panel px-3 py-4 shadow-2xl outline-none lg:hidden">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <SidebarContent onNavigate={() => setMobileMenuOpen(false)} />
+                </div>
+                <Dialog.Close asChild>
                   <button
                     type="button"
-                    className="focus-ring grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line bg-panel text-ink shadow-panel lg:hidden"
-                    aria-label={t('shell.openMenu')}
+                    className="focus-ring grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line bg-canvas text-muted"
+                    aria-label={t('shell.closeMenu')}
                   >
-                    <Menu className="h-5 w-5" strokeWidth={1.8} />
+                    <X className="h-5 w-5" strokeWidth={1.8} />
                   </button>
-                </Dialog.Trigger>
-                <Dialog.Portal>
-                  <Dialog.Overlay className="fixed inset-0 z-40 bg-canvas/70 backdrop-blur-sm lg:hidden" />
-                  <Dialog.Content className="fixed inset-y-0 left-0 z-50 flex w-[min(22rem,92vw)] flex-col border-r border-line bg-panel px-3 py-4 shadow-2xl outline-none lg:hidden">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <SidebarContent onNavigate={() => setMobileMenuOpen(false)} />
-                      </div>
-                      <Dialog.Close asChild>
-                        <button
-                          type="button"
-                          className="focus-ring grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line bg-canvas text-muted"
-                          aria-label={t('shell.closeMenu')}
-                        >
-                          <X className="h-5 w-5" strokeWidth={1.8} />
-                        </button>
-                      </Dialog.Close>
-                    </div>
-                  </Dialog.Content>
-                </Dialog.Portal>
-              </Dialog.Root>
-              <div className="min-w-0">
-                <div className="truncate text-xs text-muted">{t('app.platform')}</div>
-                <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">{t('app.name')}</h1>
+                </Dialog.Close>
               </div>
-            </div>
-            <Link href="/settings" className="focus-ring hidden h-10 items-center gap-2 rounded-xl border border-line bg-panel px-3 text-sm text-muted shadow-panel hover:bg-elevated hover:text-ink sm:flex">
-              <ChevronLeft className="hidden h-4 w-4 rotate-180 lg:block" strokeWidth={1.8} />
-              {t('nav.settings')}
-            </Link>
-          </div>
-        </header>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
 
-        <main className="mx-auto min-h-[calc(100vh-4rem)] max-w-7xl overflow-x-hidden px-4 py-5 sm:px-5 lg:px-8 lg:py-6">
+        <main className="mx-auto min-h-screen max-w-7xl overflow-x-hidden px-4 py-5 pt-20 sm:px-5 lg:px-8 lg:py-6">
           {children}
         </main>
       </div>
