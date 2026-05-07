@@ -6,6 +6,7 @@ import { AudioPolicy } from './audio-policy'
 import { DeliveryTracker } from './delivery-tracker'
 import { EvolutionSender, type EvolutionSenderConfig } from './evolution-sender'
 import { splitWhatsAppParagraphs } from './paragraph-splitter'
+import type { PresenceSession } from './presence-simulator'
 import { ElevenLabsTtsAdapter, prepareTextForTts, type TtsAdapter } from './tts-adapter'
 
 export interface DispatchResponseInput {
@@ -22,6 +23,7 @@ export interface DispatchResponseInput {
   audioRequested: boolean
   senderType?: MessageEventSenderType
   sourceEvent?: string
+  presenceSession?: PresenceSession | null
 }
 
 export interface DispatchResponseResult {
@@ -73,6 +75,7 @@ export class ResponseDispatcher {
     try {
       const sender = new EvolutionSender(config)
       const audioDecision = this.audioPolicy.decide({ text: input.text, audioRequested: input.audioRequested })
+      await this.preparePresenceBeforeSend(input.presenceSession ?? null, audioDecision.allowed)
       const result = audioDecision.allowed
         ? await this.sendAudio(sender, remoteJid, input.text)
         : await this.sendText(sender, remoteJid, input.text)
@@ -98,6 +101,7 @@ export class ResponseDispatcher {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       await this.tracker.markFailed(event, errorMessage)
+      await input.presenceSession?.stop()
       return {
         intendedEventId: event.id,
         status: 'failed',
@@ -129,6 +133,16 @@ export class ResponseDispatcher {
     return { mode: 'text', blocksSent: blocks.length, externalMessageId }
   }
 
+  private async preparePresenceBeforeSend(presenceSession: PresenceSession | null, willSendAudio: boolean): Promise<void> {
+    if (!presenceSession) return
+    if (willSendAudio) {
+      await presenceSession.switch('recording')
+      await sleep(randomRecordingDelayMs())
+    }
+
+    await presenceSession.stop()
+  }
+
   private async sendAudio(
     sender: EvolutionSender,
     remoteJid: string,
@@ -152,6 +166,14 @@ export class ResponseDispatcher {
 
     return { mode: 'audio', blocksSent, externalMessageId }
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function randomRecordingDelayMs(): number {
+  return 1000 + Math.floor(Math.random() * 2001)
 }
 
 function resolveEvolutionConfig(input: DispatchResponseInput): EvolutionSenderConfig {

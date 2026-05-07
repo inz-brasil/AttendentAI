@@ -4,6 +4,7 @@ import type { MessageEvent } from '../db/repositories/message-events.repository'
 import { traceEmitter } from '../observability/trace-emitter'
 import { AutomationDecisionEngine } from '../automation/decision-engine'
 import { ResponseDispatcher } from '../delivery/dispatcher'
+import { presenceSimulator, type PresenceSession, type PresenceSimulator } from '../delivery/presence-simulator'
 import type { QueryEngineOptions, WebhookPayload, WebhookResponse } from '../orchestrator'
 import { TranscriptRepository } from '../transcript/repository'
 import type { NormalizedWhatsappEvent } from '../webhook/evolution-normalizer'
@@ -29,7 +30,8 @@ export class ConversationBatcher {
     private readonly repository = new TranscriptRepository(),
     private readonly decisionEngine = new AutomationDecisionEngine(),
     private readonly orchestrator: OrchestratorClient | null = null,
-    private readonly dispatcher = new ResponseDispatcher()
+    private readonly dispatcher = new ResponseDispatcher(),
+    private readonly presence: PresenceSimulator = presenceSimulator
   ) {}
 
   /**
@@ -63,28 +65,35 @@ export class ConversationBatcher {
       return { batchId, processed: events.length, shouldReply: false, reason: decision.reason, responseMessage: null }
     }
 
-    await traceEmitter.emit('context_assembled', {
-      tenant_id: job.tenantId,
-      batch_id: batchId,
-      phone: job.phone,
-      data: {
-        message_count: events.length,
-        message_chars: compiledMessage.length
-      }
-    })
+    const presenceSession = this.startPresence(job, firstEvent)
 
-    const response = await this.callOrchestrator(job, firstEvent, compiledMessage, batchId)
-    const delivery = await this.dispatchResponse(job, firstEvent, response, batchId)
-    await this.emitBatchProcessed(job, batchId, events.length, 'ok', {
-      reason: decision.reason,
-      response_chars: response.message.length,
-      delivery_status: delivery.status,
-      delivery_mode: delivery.mode,
-      delivery_event_id: delivery.intendedEventId,
-      delivery_error: delivery.errorMessage
-    }, startedAt)
+    try {
+      await traceEmitter.emit('context_assembled', {
+        tenant_id: job.tenantId,
+        batch_id: batchId,
+        phone: job.phone,
+        data: {
+          message_count: events.length,
+          message_chars: compiledMessage.length
+        }
+      })
 
-    return { batchId, processed: events.length, shouldReply: true, reason: decision.reason, responseMessage: response.message }
+      const response = await this.callOrchestrator(job, firstEvent, compiledMessage, batchId)
+      const delivery = await this.dispatchResponse(job, firstEvent, response, batchId, presenceSession)
+      await this.emitBatchProcessed(job, batchId, events.length, 'ok', {
+        reason: decision.reason,
+        response_chars: response.message.length,
+        delivery_status: delivery.status,
+        delivery_mode: delivery.mode,
+        delivery_event_id: delivery.intendedEventId,
+        delivery_error: delivery.errorMessage
+      }, startedAt)
+
+      return { batchId, processed: events.length, shouldReply: true, reason: decision.reason, responseMessage: response.message }
+    } catch (error) {
+      await presenceSession?.stop()
+      throw error
+    }
   }
 
   private async callOrchestrator(
@@ -121,7 +130,8 @@ export class ConversationBatcher {
     job: InboundQueueJob,
     firstEvent: MessageEvent,
     response: WebhookResponse,
-    batchId: string
+    batchId: string,
+    presenceSession: PresenceSession | null
   ) {
     const raw = toRecord(firstEvent.raw_payload)
     return this.dispatcher.dispatch({
@@ -137,8 +147,27 @@ export class ConversationBatcher {
       text: response.message,
       audioRequested: response.audio_requested,
       senderType: 'bot',
-      sourceEvent: 'orchestrator.response'
+      sourceEvent: 'orchestrator.response',
+      presenceSession
     })
+  }
+
+  private startPresence(job: InboundQueueJob, firstEvent: MessageEvent): PresenceSession | null {
+    const instance = firstEvent.instance?.trim()
+    if (!instance) {
+      return null
+    }
+
+    const raw = toRecord(firstEvent.raw_payload)
+    return this.presence.start({
+      tenantId: job.tenantId,
+      phone: job.phone,
+      remoteJid: firstEvent.remote_jid,
+      instance,
+      evolutionUrl: readString(raw, 'server_url') ?? readString(raw, 'evolutionUrl'),
+      evolutionLocalUrl: readString(raw, 'url_evolution_local') ?? readString(raw, 'evolutionLocalUrl'),
+      apiKey: readString(raw, 'apikey')
+    }, 'composing')
   }
 
   private async emitBatchProcessed(
