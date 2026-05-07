@@ -18,6 +18,7 @@ import { PhoneLockedError, QueryEngine } from '../orchestrator'
 import { recordTrace } from '../monitoring/trace-recorder'
 import { traceEmitter } from '../observability/trace-emitter'
 import { AutomationDecisionEngine } from '../automation/decision-engine'
+import { MediaProcessor } from '../media/media-processor'
 import { TranscriptIngestor } from '../transcript/ingestor'
 import {
   normalizeEvolutionRawPayload,
@@ -160,6 +161,7 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
   const queryEngine = new QueryEngine()
   const transcriptIngestor = new TranscriptIngestor()
   const automationDecisionEngine = new AutomationDecisionEngine()
+  const mediaProcessor = new MediaProcessor()
 
   app.post('/api/webhook', async (request, reply) => {
     if (!validateAuth(request)) {
@@ -254,6 +256,10 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
     }
 
     const transcript = await transcriptIngestor.ingest({ tenantId, event: normalized, source: 'evolution' })
+    if (shouldProcessMedia(normalized.processedType) && transcript.status === 'ingested') {
+      mediaProcessor.processInBackground({ tenantId, event: normalized, messageEvent: transcript.event })
+    }
+
     const decision = await automationDecisionEngine.decide({ tenantId, event: normalized, transcript })
     if (!decision.shouldReply) {
       await emitRejectedTraceForDecision(tenantId, normalized, decision.reason)
@@ -265,6 +271,18 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
         transcript_event_id: transcript.event.id,
         delivery_status: transcript.event.delivery_status,
         pause_expires_at: decision.pauseExpiresAt,
+        message: ''
+      })
+    }
+
+    if (shouldProcessMedia(normalized.processedType)) {
+      return reply.code(202).send({
+        success: true,
+        should_reply: false,
+        action: 'media_processing',
+        reason: 'media_processing_async',
+        transcript_event_id: transcript.event.id,
+        delivery_status: transcript.event.delivery_status,
         message: ''
       })
     }
@@ -306,6 +324,10 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
     const payload = normalizeEvolutionPayload(parsed.data)
     return processEvolutionPayload(payload, request, reply, queryEngine)
   })
+}
+
+function shouldProcessMedia(processedType: string): boolean {
+  return processedType !== 'text' && processedType !== 'unknown'
 }
 
 async function processRawAllowedPayload(

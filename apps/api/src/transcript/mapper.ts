@@ -34,7 +34,7 @@ export interface TranscriptMapperInput {
  * @returns Registro pronto para insert.
  */
 export function mapNormalizedEventToMessageEvent(input: TranscriptMapperInput): NewMessageEvent {
-  const content = input.event.text
+  const content = buildInitialContent(input.event)
 
   return {
     tenant_id: input.tenantId,
@@ -66,6 +66,26 @@ export function mapNormalizedEventToMessageEvent(input: TranscriptMapperInput): 
     raw_payload: toJsonRecord(input.event.raw),
     whatsapp_timestamp: input.event.timestamp
   }
+}
+
+function buildInitialContent(event: NormalizedWhatsappEvent): string {
+  if (event.processedType === 'text') {
+    return event.text
+  }
+
+  if (event.processedType === 'audio') {
+    return '[Áudio recebido]'
+  }
+
+  if (event.processedType === 'image') {
+    return event.text || '[Imagem recebida]'
+  }
+
+  if (['video', 'document', 'sticker'].includes(event.processedType)) {
+    return `[Arquivo recebido: ${event.processedType}]`
+  }
+
+  return event.text || '[Mensagem recebida]'
 }
 
 /**
