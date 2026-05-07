@@ -17,6 +17,7 @@ import { enqueueMessage } from '../queue/message-queue'
 import { PhoneLockedError, QueryEngine } from '../orchestrator'
 import { recordTrace } from '../monitoring/trace-recorder'
 import { traceEmitter } from '../observability/trace-emitter'
+import { AutomationDecisionEngine } from '../automation/decision-engine'
 import { TranscriptIngestor } from '../transcript/ingestor'
 import {
   normalizeEvolutionRawPayload,
@@ -119,6 +120,18 @@ async function emitWebhookRejectedTrace(
   })
 }
 
+async function emitRejectedTraceForDecision(
+  tenantId: string,
+  event: NormalizedWhatsappEvent,
+  reason: string
+): Promise<void> {
+  if (reason !== 'group_ignored' && reason !== 'unsupported_event') {
+    return
+  }
+
+  await emitWebhookRejectedTrace(tenantId, event, reason)
+}
+
 function estimatePayloadSize(payload: unknown): number {
   try {
     return JSON.stringify(payload).length
@@ -146,6 +159,7 @@ function readString(source: Record<string, unknown> | null, key: string): string
 export async function registerWebhookRoutes(app: FastifyInstance): Promise<void> {
   const queryEngine = new QueryEngine()
   const transcriptIngestor = new TranscriptIngestor()
+  const automationDecisionEngine = new AutomationDecisionEngine()
 
   app.post('/api/webhook', async (request, reply) => {
     if (!validateAuth(request)) {
@@ -230,53 +244,49 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
     const normalized = normalizeEvolutionRawPayload(parsed.data)
     if (normalized.event !== 'messages.upsert') {
       await emitWebhookRejectedTrace(tenantId, normalized, 'unsupported_event')
+      const decision = await automationDecisionEngine.decide({ tenantId, event: normalized, transcript: null })
       return reply.code(200).send({
         success: true,
         action: 'ignored',
-        reason: 'unsupported_event',
+        reason: decision.reason,
         event: normalized.event
       })
     }
 
     const transcript = await transcriptIngestor.ingest({ tenantId, event: normalized, source: 'evolution' })
-
-    if (transcript.nextAction === 'record_only') {
-      if (normalized.isGroup) {
-        await emitWebhookRejectedTrace(tenantId, normalized, 'group_message')
-      }
-      return reply.code(200).send({
-        success: true,
-        action: 'record_only',
-        reason: normalized.isGroup ? 'group_message' : transcript.status,
-        transcript_event_id: transcript.event.id,
-        delivery_status: transcript.event.delivery_status
-      })
-    }
-
-    if (transcript.nextAction === 'activate_pause') {
+    const decision = await automationDecisionEngine.decide({ tenantId, event: normalized, transcript })
+    if (!decision.shouldReply) {
+      await emitRejectedTraceForDecision(tenantId, normalized, decision.reason)
       return reply.code(200).send({
         success: true,
         should_reply: false,
         action: 'record_only',
-        reason: 'human_takeover',
+        reason: decision.reason,
+        transcript_event_id: transcript.event.id,
+        delivery_status: transcript.event.delivery_status,
+        pause_expires_at: decision.pauseExpiresAt,
+        message: ''
+      })
+    }
+
+    if (!decision.shouldProcess || transcript.nextAction !== 'enqueue') {
+      return reply.code(200).send({
+        success: true,
+        should_reply: false,
+        action: 'record_only',
+        reason: transcript.status,
         transcript_event_id: transcript.event.id,
         message: ''
       })
     }
 
-    if (transcript.nextAction === 'update_existing') {
-      return reply.code(200).send({
-        success: true,
-        should_reply: false,
-        action: 'record_only',
-        reason: 'bot_delivery_confirmed',
-        transcript_event_id: transcript.event.id,
-        message: ''
-      })
+    const allowed = await enforcePhoneRateLimit(request, reply, normalized.phone, WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE)
+    if (!allowed) {
+      return reply
     }
 
     const legacyPayload = toLegacyEvolutionWebhookPayload(normalized)
-    return processEvolutionPayload(legacyPayload, request, reply, queryEngine)
+    return processRawAllowedPayload(legacyPayload, reply, queryEngine, decision.reason)
   })
 
   app.post('/api/webhook/evolution', async (request, reply) => {
@@ -296,6 +306,29 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
     const payload = normalizeEvolutionPayload(parsed.data)
     return processEvolutionPayload(payload, request, reply, queryEngine)
   })
+}
+
+async function processRawAllowedPayload(
+  payload: EvolutionPayload,
+  reply: WebhookRouteReply,
+  queryEngine: QueryEngine,
+  reason: string
+): Promise<Record<string, unknown> | WebhookRouteReply> {
+  try {
+    const response = await queryEngine.process(payload)
+    return {
+      ...response,
+      should_reply: Boolean(response.message),
+      action: 'reply',
+      reason
+    }
+  } catch (error) {
+    if (error instanceof PhoneLockedError) {
+      return reply.code(429).send({ error: 'Mensagem anterior ainda processando', code: 'PHONE_LOCKED' })
+    }
+
+    throw error
+  }
 }
 
 async function processEvolutionPayload(

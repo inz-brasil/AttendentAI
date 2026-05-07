@@ -1,6 +1,6 @@
 // ingestor.ts — Persiste eventos WhatsApp normalizados com dedupe e classificação de origem
 import { eq } from 'drizzle-orm'
-import { activateAutomationBlacklist } from '../automation/control'
+import { activateHumanTakeoverPause } from '../automation/human-takeover'
 import { db } from '../db/client'
 import type {
   MessageEventDeliveryStatus,
@@ -76,7 +76,7 @@ export class TranscriptIngestor {
 
     if (humanTakeoverActivated) {
       await this.ensureLeadExists(input.event)
-      await activateAutomationBlacklist(input.event.phone, 'human_takeover', source)
+      await activateHumanTakeoverPause(input.event.phone, source)
       await traceEmitter.emit('human_takeover_activated', {
         tenant_id: input.tenantId,
         phone: input.event.phone,
