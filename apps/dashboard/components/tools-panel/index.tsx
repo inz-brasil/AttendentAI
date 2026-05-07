@@ -1,6 +1,7 @@
 'use client'
 // index.tsx — Painel de tools MCP habilitadas por agente
 import { useEffect, useMemo, useState } from 'react'
+import { Wrench } from 'lucide-react'
 import { Badge } from '../ui/badge'
 import { useToast } from '../ui/toast-provider'
 import type { AgentMcpServerRow, McpServer } from '../../lib/api'
@@ -138,6 +139,7 @@ export function ToolsPanel({ agentId }: ToolsPanelProps): JSX.Element {
                 </div>
                 <button
                   onClick={() => toggle(server.id)}
+                  data-compact="true"
                   className={`relative h-6 w-11 rounded-full border transition ${enabled ? 'border-success/40 bg-success/20' : 'border-line bg-canvas'}`}
                   aria-label={enabled ? 'Desabilitar servidor' : 'Habilitar servidor'}
                 >
@@ -153,7 +155,9 @@ export function ToolsPanel({ agentId }: ToolsPanelProps): JSX.Element {
                     <div className="grid gap-2">
                       {tools.map((tool) => (
                         <div key={tool.name} className="flex gap-3 rounded-md bg-canvas p-3">
-                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded bg-elevated text-cyan">⚙</span>
+                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded bg-elevated text-cyan">
+                            <Wrench className="h-3.5 w-3.5" strokeWidth={1.8} />
+                          </span>
                           <div className="min-w-0">
                             <div className="font-mono text-xs text-ink">{tool.name}</div>
                             <p className="mt-1 text-xs text-muted">{tool.description ?? 'Sem descrição'}</p>

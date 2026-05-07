@@ -70,8 +70,16 @@ button,
 input,
 textarea,
 select {
-  min-height: 44px;
   font: inherit;
+}
+
+@media (pointer: coarse) {
+  button:not([data-compact="true"]),
+  input,
+  textarea,
+  select {
+    min-height: 44px;
+  }
 }
 
 a {

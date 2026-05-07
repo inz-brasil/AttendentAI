@@ -22,6 +22,28 @@ export const configDefinitions = {
     { key: 'evolution_local_url', type: 'string', fallback: env.EVOLUTION_LOCAL_URL ?? '' },
     { key: 'evolution_api_key', type: 'string', fallback: env.EVOLUTION_API_KEY ?? '', secret: true }
   ],
+  business: [
+    { key: 'business_tenant_id', type: 'string', fallback: 'default' },
+    { key: 'business_company_name', type: 'string', fallback: '' },
+    { key: 'business_summary', type: 'string', fallback: '' },
+    { key: 'business_products_services', type: 'string', fallback: '' },
+    { key: 'business_target_audience', type: 'string', fallback: '' },
+    { key: 'business_tone', type: 'string', fallback: 'natural, profissional e direto' },
+    { key: 'business_policies', type: 'string', fallback: '' },
+    { key: 'business_website', type: 'string', fallback: '' }
+  ],
+  tenants: [
+    { key: 'tenants_items', type: 'string', fallback: '[]' }
+  ],
+  evolution_instances: [
+    { key: 'evolution_instances_items', type: 'string', fallback: '[]' }
+  ],
+  wacli: [
+    { key: 'wacli_enabled', type: 'boolean', fallback: false },
+    { key: 'wacli_active_phone', type: 'string', fallback: '' },
+    { key: 'wacli_store', type: 'string', fallback: '' },
+    { key: 'wacli_command', type: 'string', fallback: 'wacli' }
+  ],
   automation: [
     { key: 'automation_enabled', type: 'boolean', fallback: true },
     { key: 'schedule_enabled', type: 'boolean', fallback: false },

@@ -247,6 +247,7 @@ export function SkillEditorClient({ initialSkill, isNew }: SkillEditorClientProp
             <div className="flex items-center gap-3 pt-1">
               <button
                 onClick={() => setMeta(p => ({ ...p, is_active: !p.is_active }))}
+                data-compact="true"
                 className={`relative h-5 w-9 rounded-full border transition ${meta.is_active ? 'bg-success/20 border-success/40' : 'bg-canvas border-line'}`}
               >
                 <span className={`absolute top-0.5 h-4 w-4 rounded-full transition-all ${meta.is_active ? 'left-4 bg-success' : 'left-0.5 bg-muted/40'}`} />

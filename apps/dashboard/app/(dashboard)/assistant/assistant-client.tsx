@@ -2,7 +2,9 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
+import { Paperclip, Search, Send, MessageSquare } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useUiStore } from '../../../lib/ui-store'
 
 interface ChatMessage {
   id: string
@@ -33,6 +35,7 @@ function parseSseChunk(chunk: string): Array<Record<string, unknown>> {
  */
 export function AssistantClient(): JSX.Element {
   const { t } = useTranslation()
+  const debugMode = useUiStore((state) => state.debugMode)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [files, setFiles] = useState<AttachedFile[]>([])
@@ -103,9 +106,9 @@ export function AssistantClient(): JSX.Element {
   }
 
   return (
-    <div className="grid min-h-[calc(100vh-7rem)] gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+    <div className={debugMode ? 'grid min-h-[calc(100vh-7rem)] gap-4 lg:grid-cols-[minmax(0,1fr)_320px]' : 'mx-auto flex min-h-[calc(100vh-7rem)] max-w-4xl flex-col'}>
       <section className="surface flex min-h-[68vh] flex-col overflow-hidden rounded-2xl">
-        <header className="border-b border-line px-5 py-4">
+        <header className={debugMode ? 'border-b border-line px-5 py-4' : 'sr-only'}>
           <div className="text-xs font-medium uppercase tracking-[0.18em] text-accent">{t('assistant.eyebrow')}</div>
           <h2 className="mt-2 text-2xl font-semibold">{t('assistant.title')}</h2>
           <p className="mt-1 text-sm text-muted">{t('assistant.subtitle')}</p>
@@ -114,7 +117,9 @@ export function AssistantClient(): JSX.Element {
         <div className="flex-1 space-y-5 overflow-y-auto px-4 py-5 sm:px-6">
           {messages.length === 0 && (
             <div className="mx-auto flex max-w-md flex-col items-center justify-center py-16 text-center text-sm text-muted">
-              <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-elevated text-xl">💬</div>
+              <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-elevated">
+                <MessageSquare className="h-5 w-5" strokeWidth={1.8} />
+              </div>
               {t('assistant.empty')}
             </div>
           )}
@@ -148,7 +153,7 @@ export function AssistantClient(): JSX.Element {
               className="focus-ring grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-elevated"
               aria-label={t('assistant.upload')}
             >
-              +
+              <Paperclip className="h-4 w-4" strokeWidth={1.8} />
             </button>
             <textarea
               value={input}
@@ -169,7 +174,8 @@ export function AssistantClient(): JSX.Element {
               onClick={() => void sendMessage()}
               className="focus-ring min-h-11 rounded-xl bg-accent px-4 text-sm font-semibold text-[var(--accent-contrast)] disabled:opacity-50"
             >
-              {t('common.send')}
+              <span className="sr-only">{t('common.send')}</span>
+              <Send className="h-4 w-4" strokeWidth={1.8} />
             </button>
             <input
               ref={fileInputRef}
@@ -182,7 +188,7 @@ export function AssistantClient(): JSX.Element {
         </footer>
       </section>
 
-      <aside className="space-y-4">
+      {debugMode && <aside className="space-y-4">
         <div className="surface rounded-2xl p-4">
           <div className="text-sm font-semibold">{t('assistant.history')}</div>
           <button
@@ -197,13 +203,22 @@ export function AssistantClient(): JSX.Element {
           </button>
         </div>
         <div className="surface rounded-2xl p-4">
-          <div className="text-sm font-semibold">{t('assistant.webSearch')}</div>
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Search className="h-4 w-4" strokeWidth={1.8} />
+            {t('assistant.webSearch')}
+          </div>
           <div className="mt-3 flex min-h-11 items-center justify-between rounded-xl bg-elevated px-3 text-sm text-muted">
             <span>{webSearching ? t('assistant.searching') : t('common.inactive')}</span>
-            <span className={webSearching ? 'text-success' : 'text-muted'}>●</span>
+            <span className={webSearching ? 'text-success' : 'text-muted'}>{webSearching ? t('common.active') : t('common.inactive')}</span>
           </div>
         </div>
-      </aside>
+        <div className="surface rounded-2xl p-4">
+          <div className="text-sm font-semibold">{t('debug.llmContext')}</div>
+          <pre className="mt-3 max-h-72 overflow-auto rounded-xl bg-elevated p-3 font-mono text-xs text-muted">
+            {JSON.stringify({ messages: history, files: files.map((file) => file.name), streaming, webSearching }, null, 2)}
+          </pre>
+        </div>
+      </aside>}
     </div>
   )
 }

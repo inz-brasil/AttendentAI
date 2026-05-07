@@ -1,4 +1,4 @@
-// app-shell.tsx — Shell responsivo com sidebar colapsável, tema, idioma e debug mode
+// app-shell.tsx — Shell responsivo com sidebar colapsável e navegação profissional
 'use client'
 
 import { useState, type ReactNode } from 'react'
@@ -6,25 +6,40 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useTranslation } from 'react-i18next'
-import { languages } from '../lib/i18n'
-import { useUiStore, type LanguageCode, type ThemeMode } from '../lib/ui-store'
+import {
+  BarChart3,
+  BookOpen,
+  Bot,
+  Bug,
+  ChevronLeft,
+  ChevronRight,
+  Home,
+  Menu,
+  MessageSquare,
+  PanelLeftClose,
+  Settings,
+  Users,
+  X,
+  type LucideIcon
+} from 'lucide-react'
+import { useUiStore } from '../lib/ui-store'
 
 interface NavItem {
   href: string
   key: string
-  icon: string
+  icon: LucideIcon
   debugOnly?: boolean
 }
 
 const navItems: NavItem[] = [
-  { href: '/', key: 'home', icon: '🏠' },
-  { href: '/assistant', key: 'assistant', icon: '💬' },
-  { href: '/leads', key: 'clients', icon: '👥' },
-  { href: '/agents', key: 'agents', icon: '🤖' },
-  { href: '/skills', key: 'knowledge', icon: '📚' },
-  { href: '/traces', key: 'analytics', icon: '📊' },
-  { href: '/settings', key: 'settings', icon: '⚙️' },
-  { href: '/debug', key: 'debug', icon: '🐛', debugOnly: true }
+  { href: '/', key: 'home', icon: Home },
+  { href: '/assistant', key: 'assistant', icon: MessageSquare },
+  { href: '/leads', key: 'clients', icon: Users },
+  { href: '/agents', key: 'agents', icon: Bot },
+  { href: '/skills', key: 'knowledge', icon: BookOpen },
+  { href: '/traces', key: 'analytics', icon: BarChart3 },
+  { href: '/settings', key: 'settings', icon: Settings },
+  { href: '/debug', key: 'debug', icon: Bug, debugOnly: true }
 ]
 
 function isActivePath(pathname: string, href: string): boolean {
@@ -32,28 +47,11 @@ function isActivePath(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-function MenuGlyph(): JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M4 7h16M4 12h16M4 17h16" />
-    </svg>
-  )
-}
-
-function CloseGlyph(): JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="m6 6 12 12M18 6 6 18" />
-    </svg>
-  )
-}
-
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }): JSX.Element {
   const { t } = useTranslation()
   const pathname = usePathname()
   const debugMode = useUiStore((state) => state.debugMode)
   const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed)
-  const setDebugMode = useUiStore((state) => state.setDebugMode)
   const setSidebarCollapsed = useUiStore((state) => state.setSidebarCollapsed)
   const visibleItems = navItems.filter((item) => debugMode || !item.debugOnly)
 
@@ -70,7 +68,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }): JSX.Elemen
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           aria-label={sidebarCollapsed ? t('shell.expand') : t('shell.collapse')}
         >
-          {sidebarCollapsed ? '›' : '‹'}
+          {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </button>
       </div>
 
@@ -89,67 +87,28 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }): JSX.Elemen
                 sidebarCollapsed ? 'justify-center' : ''
               ].join(' ')}
             >
-              <span className="grid h-8 w-8 shrink-0 place-items-center text-base" aria-hidden="true">{item.icon}</span>
+              <span className="grid h-8 w-8 shrink-0 place-items-center" aria-hidden="true">
+                <item.icon className="h-4 w-4" strokeWidth={1.8} />
+              </span>
               {!sidebarCollapsed && <span className="truncate">{t(`nav.${item.key}`)}</span>}
             </Link>
           )
         })}
       </nav>
 
-      <div className="mt-auto space-y-3 px-1 pb-2">
-        <label className={[
-          'flex min-h-11 items-center gap-3 rounded-xl border border-line bg-panel px-3 text-sm text-ink shadow-panel',
-          sidebarCollapsed ? 'justify-center' : 'justify-between'
-        ].join(' ')}
+      <div className="mt-auto px-1 pb-2">
+        <Link
+          href="/settings"
+          onClick={onNavigate}
+          className={[
+            'focus-ring flex min-h-11 items-center gap-3 rounded-xl border border-line bg-panel px-3 text-sm text-muted shadow-panel hover:bg-elevated hover:text-ink',
+            sidebarCollapsed ? 'justify-center' : ''
+          ].join(' ')}
         >
-          {!sidebarCollapsed && <span>{t('shell.debugMode')}</span>}
-          <input
-            type="checkbox"
-            checked={debugMode}
-            onChange={(event) => setDebugMode(event.target.checked)}
-            className="h-5 w-5 accent-[var(--accent)]"
-          />
-        </label>
+          <Settings className="h-4 w-4" strokeWidth={1.8} />
+          {!sidebarCollapsed && <span>{t('settings.preferences')}</span>}
+        </Link>
       </div>
-    </div>
-  )
-}
-
-function HeaderControls(): JSX.Element {
-  const { t, i18n } = useTranslation()
-  const theme = useUiStore((state) => state.theme)
-  const language = useUiStore((state) => state.language)
-  const setTheme = useUiStore((state) => state.setTheme)
-  const setLanguage = useUiStore((state) => state.setLanguage)
-
-  function toggleTheme(): void {
-    setTheme((theme === 'dark' ? 'light' : 'dark') as ThemeMode)
-  }
-
-  function changeLanguage(value: string): void {
-    const nextLanguage = value as LanguageCode
-    setLanguage(nextLanguage)
-    void i18n.changeLanguage(nextLanguage)
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <select
-        value={language}
-        onChange={(event) => changeLanguage(event.target.value)}
-        aria-label={t('common.language')}
-        className="focus-ring h-11 rounded-xl border border-line bg-panel px-3 text-sm text-ink shadow-panel"
-      >
-        {languages.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
-      </select>
-      <button
-        type="button"
-        onClick={toggleTheme}
-        className="focus-ring grid h-11 w-11 place-items-center rounded-xl border border-line bg-panel text-lg shadow-panel"
-        aria-label={t('common.theme')}
-      >
-        {theme === 'dark' ? '☀️' : '🌙'}
-      </button>
     </div>
   )
 }
@@ -186,7 +145,7 @@ export function AppShell({ children }: { children: ReactNode }): JSX.Element {
                     className="focus-ring grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line bg-panel text-ink shadow-panel lg:hidden"
                     aria-label={t('shell.openMenu')}
                   >
-                    <MenuGlyph />
+                    <Menu className="h-5 w-5" strokeWidth={1.8} />
                   </button>
                 </Dialog.Trigger>
                 <Dialog.Portal>
@@ -202,7 +161,7 @@ export function AppShell({ children }: { children: ReactNode }): JSX.Element {
                           className="focus-ring grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line bg-canvas text-muted"
                           aria-label={t('shell.closeMenu')}
                         >
-                          <CloseGlyph />
+                          <X className="h-5 w-5" strokeWidth={1.8} />
                         </button>
                       </Dialog.Close>
                     </div>
@@ -214,7 +173,10 @@ export function AppShell({ children }: { children: ReactNode }): JSX.Element {
                 <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">{t('app.name')}</h1>
               </div>
             </div>
-            <HeaderControls />
+            <Link href="/settings" className="focus-ring hidden h-10 items-center gap-2 rounded-xl border border-line bg-panel px-3 text-sm text-muted shadow-panel hover:bg-elevated hover:text-ink sm:flex">
+              <ChevronLeft className="hidden h-4 w-4 rotate-180 lg:block" strokeWidth={1.8} />
+              {t('nav.settings')}
+            </Link>
           </div>
         </header>
 

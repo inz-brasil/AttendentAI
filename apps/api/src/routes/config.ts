@@ -1,6 +1,7 @@
 // config.ts — Expõe APIs de configuração editáveis em tempo real para o dashboard
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import { writeBusinessProfileVault } from '../config/business-vault'
 import { configDefinitions, getConfigSection, type ConfigSection, updateConfigSection } from '../config/dashboard-config'
 
 const sectionNames = Object.keys(configDefinitions) as Array<keyof typeof configDefinitions>
@@ -20,9 +21,14 @@ export async function registerConfigRoutes(app: FastifyInstance): Promise<void> 
 
     app.put(`/api/config/${section}`, async (request) => {
       const body = configBodySchema.parse(request.body ?? {})
+      const config = await updateConfigSection(section, body)
+      if (section === 'business') {
+        await writeBusinessProfileVault(config)
+      }
+
       return {
         section,
-        config: withSectionStatus(section, await updateConfigSection(section, body))
+        config: withSectionStatus(section, config)
       }
     })
   }

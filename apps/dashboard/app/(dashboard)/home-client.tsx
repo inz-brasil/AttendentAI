@@ -6,8 +6,10 @@ import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
+import { ArrowRight, Circle, Settings2 } from 'lucide-react'
 import { Badge } from '../../components/ui/badge'
 import { api, type Lead } from '../../lib/api'
+import { useUiStore } from '../../lib/ui-store'
 
 interface HealthData {
   status: string
@@ -44,6 +46,7 @@ function isEnabled(value: unknown): boolean {
 export function HomeClient({ initialData }: HomeClientProps): JSX.Element {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const debugMode = useUiStore((state) => state.debugMode)
   const [optimisticAutomation, setOptimisticAutomation] = useState<boolean | null>(null)
 
   const leadsQuery = useQuery({
@@ -73,6 +76,10 @@ export function HomeClient({ initialData }: HomeClientProps): JSX.Element {
   const evolutionQuery = useQuery({
     queryKey: ['config', 'evolution'],
     queryFn: () => api.configSection('evolution')
+  })
+  const businessQuery = useQuery({
+    queryKey: ['config', 'business'],
+    queryFn: () => api.configSection('business')
   })
 
   const automationMutation = useMutation({
@@ -115,12 +122,33 @@ export function HomeClient({ initialData }: HomeClientProps): JSX.Element {
             healthQuery.refetch(),
             queueQuery.refetch(),
             wacliQuery.refetch(),
-            evolutionQuery.refetch()
+            evolutionQuery.refetch(),
+            businessQuery.refetch()
           ])}
           className="focus-ring min-h-11 rounded-xl border border-line bg-panel px-4 text-sm text-ink shadow-panel"
         >
           {t('common.refresh')}
         </button>
+      </section>
+
+      <section className="surface rounded-2xl p-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <Settings2 className="h-4 w-4 text-muted" strokeWidth={1.8} />
+              {t('home.initialSetup')}
+            </div>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
+              {businessQuery.data?.config.company_name
+                ? t('home.initialSetupReady', { company: String(businessQuery.data.config.company_name) })
+                : t('home.initialSetupSubtitle')}
+            </p>
+          </div>
+          <Link href="/settings" className="focus-ring inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-line bg-elevated px-4 text-sm text-ink hover:text-accent">
+            {t('home.startSetup')}
+            <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
+          </Link>
+        </div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -201,11 +229,24 @@ export function HomeClient({ initialData }: HomeClientProps): JSX.Element {
           <div className="surface rounded-2xl p-5">
             <h3 className="text-sm font-semibold">{t('home.shortcuts')}</h3>
             <div className="mt-4 grid gap-2">
-              <Shortcut href="/debug" label={t('home.openDebug')} />
+              {debugMode && <Shortcut href="/debug" label={t('home.openDebug')} />}
               <Shortcut href="/settings" label={t('home.testEvolution')} />
               <Shortcut href="/leads" label={t('home.openClients')} />
             </div>
           </div>
+          {debugMode && (
+            <div className="surface rounded-2xl p-5">
+              <h3 className="text-sm font-semibold">{t('debug.liveLogs')}</h3>
+              <pre className="mt-4 max-h-64 overflow-auto rounded-xl bg-elevated p-3 font-mono text-xs text-muted">
+                {JSON.stringify({
+                  automation: automationConfig,
+                  evolution: evolutionQuery.data?.config ?? null,
+                  queue: queueQuery.data?.counts ?? null,
+                  wacli: wacliQuery.data?.doctor?.data ?? null
+                }, null, 2)}
+              </pre>
+            </div>
+          )}
         </div>
       </section>
     </div>
@@ -225,7 +266,7 @@ function StatusLine({ label, ok }: { label: string; ok: boolean }): JSX.Element 
   return (
     <div className="flex min-h-11 items-center justify-between rounded-xl bg-elevated px-3">
       <span className="text-sm text-muted">{label}</span>
-      <span className={ok ? 'text-success' : 'text-danger'}>{ok ? '●' : '●'}</span>
+      <Circle className={ok ? 'h-2.5 w-2.5 fill-success text-success' : 'h-2.5 w-2.5 fill-danger text-danger'} />
     </div>
   )
 }

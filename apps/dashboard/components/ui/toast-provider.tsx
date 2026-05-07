@@ -2,6 +2,7 @@
 // toast-provider.tsx — Provider de notificações toast (Radix Toast)
 import * as Toast from '@radix-ui/react-toast'
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { X } from 'lucide-react'
 
 interface ToastMessage {
   id: string
@@ -28,6 +29,11 @@ export function useToast(): ToastContextValue {
  */
 export function ToastProvider({ children }: { children: ReactNode }): JSX.Element {
   const [messages, setMessages] = useState<ToastMessage[]>([])
+
+  /** Remove um toast específico imediatamente. */
+  const dismiss = useCallback((id: string) => {
+    setMessages((prev) => prev.filter((message) => message.id !== id))
+  }, [])
 
   const toast = useCallback((msg: Omit<ToastMessage, 'id'>) => {
     const id = Math.random().toString(36).slice(2)
@@ -56,7 +62,10 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
           <Toast.Root
             key={msg.id}
             open={true}
-            className={`flex items-start gap-3 rounded-lg border p-4 shadow-2xl ${variantBorder[msg.variant]}`}
+            onOpenChange={(open) => {
+              if (!open) dismiss(msg.id)
+            }}
+            className={`flex items-start gap-3 rounded-xl border p-3 shadow-2xl ${variantBorder[msg.variant]}`}
           >
             <div className={`mt-1 h-2 w-2 shrink-0 rounded-full ${variantDot[msg.variant]}`} />
             <div className="flex-1 min-w-0">
@@ -65,14 +74,16 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
                 <Toast.Description className="mt-1 text-xs text-muted">{msg.description}</Toast.Description>
               )}
             </div>
-            <Toast.Close className="ml-2 text-muted hover:text-ink transition">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 6 6 18M6 6l12 12"/>
-              </svg>
+            <Toast.Close
+              className="focus-ring ml-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-elevated hover:text-ink"
+              onClick={() => dismiss(msg.id)}
+              aria-label="Fechar notificação"
+            >
+              <X className="h-4 w-4" strokeWidth={1.8} />
             </Toast.Close>
           </Toast.Root>
         ))}
-        <Toast.Viewport className="fixed bottom-6 right-6 z-[100] flex w-80 flex-col gap-2" />
+        <Toast.Viewport className="fixed bottom-4 right-4 z-[100] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2" />
       </Toast.Provider>
     </ToastCtx.Provider>
   )

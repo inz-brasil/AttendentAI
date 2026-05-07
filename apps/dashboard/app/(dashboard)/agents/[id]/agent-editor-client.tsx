@@ -8,6 +8,7 @@ import { CodeEditor } from '../../../../components/ui/code-editor'
 import { ToolsPanel } from '../../../../components/tools-panel'
 import { useToast } from '../../../../components/ui/toast-provider'
 import type { Agent, AgentMetrics, AgentSkillRow, Skill } from '../../../../lib/api'
+import { useUiStore } from '../../../../lib/ui-store'
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '/api/backend')
 
@@ -63,6 +64,7 @@ export function AgentEditorClient({
   initialMetrics
 }: AgentEditorClientProps): JSX.Element {
   const { toast } = useToast()
+  const debugMode = useUiStore((state) => state.debugMode)
 
   // Aba Identidade
   const [identity, setIdentity] = useState({
@@ -244,8 +246,10 @@ export function AgentEditorClient({
             { value: 'identity', label: 'Identidade' },
             { value: 'prompt', label: 'System Prompt' },
             { value: 'skills', label: 'Skills' },
-            { value: 'tools', label: 'Ferramentas' },
-            { value: 'metrics', label: 'Métricas' }
+            ...(debugMode ? [
+              { value: 'tools', label: 'Ferramentas' },
+              { value: 'metrics', label: 'Métricas' }
+            ] : [])
           ].map(tab => (
             <Tabs.Trigger
               key={tab.value}
@@ -331,6 +335,7 @@ export function AgentEditorClient({
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setIdentity(p => ({ ...p, is_active: !p.is_active }))}
+                data-compact="true"
                 className={`relative h-6 w-11 rounded-full border transition ${identity.is_active ? 'bg-success/20 border-success/40' : 'bg-canvas border-line'}`}
               >
                 <span className={`absolute top-0.5 h-5 w-5 rounded-full transition-all ${identity.is_active ? 'left-5 bg-success' : 'left-0.5 bg-muted/40'}`} />
@@ -350,7 +355,7 @@ export function AgentEditorClient({
 
         {/* ABA: System Prompt */}
         <Tabs.Content value="prompt" className="mt-5">
-          <div className="grid gap-5 xl:grid-cols-[1fr_240px]">
+          <div className={debugMode ? 'grid gap-5 xl:grid-cols-[1fr_240px]' : 'space-y-3'}>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-ink">System Prompt</h3>
@@ -371,7 +376,7 @@ export function AgentEditorClient({
             </div>
 
             {/* Painel de variáveis */}
-            <div className="rounded-xl bg-panel border border-line p-4 shadow-panel h-fit">
+            {debugMode && <div className="rounded-xl bg-panel border border-line p-4 shadow-panel h-fit">
               <div className="font-mono text-[11px] uppercase tracking-[0.15em] text-muted mb-3">Variáveis disponíveis</div>
               <div className="space-y-2">
                 {PROMPT_VARS.map(v => (
@@ -387,7 +392,7 @@ export function AgentEditorClient({
                 ))}
               </div>
               <p className="mt-3 text-[10px] text-muted/50">Clique para inserir ao final do prompt.</p>
-            </div>
+            </div>}
           </div>
         </Tabs.Content>
 
@@ -464,6 +469,7 @@ export function AgentEditorClient({
                         {/* Checkbox */}
                         <button
                           onClick={() => toggleSkill(item.skill_id)}
+                          data-compact="true"
                           className={`h-5 w-5 shrink-0 rounded border transition ${
                             item.enabled
                               ? 'bg-accent/20 border-accent/50'

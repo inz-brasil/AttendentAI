@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { AlertCircle, Bot, Check, Copy, Edit3, Route, ToggleLeft } from 'lucide-react'
 import { Badge } from '../../../components/ui/badge'
 import { useToast } from '../../../components/ui/toast-provider'
 import type { Agent, Skill } from '../../../lib/api'
+import { useUiStore } from '../../../lib/ui-store'
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || '/api/backend')
 
@@ -45,6 +47,7 @@ interface AgentsClientProps {
 export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JSX.Element {
   const router = useRouter()
   const { toast } = useToast()
+  const debugMode = useUiStore((state) => state.debugMode)
   const [agents, setAgents] = useState(initialAgents)
   const [toggling, setToggling] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -92,7 +95,7 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>
-          <div className="font-mono text-xs uppercase tracking-[0.22em] text-accent">Pipeline</div>
+          <div className="text-xs font-medium uppercase tracking-[0.18em] text-accent">Pipeline</div>
           <h2 className="mt-2 text-3xl font-semibold tracking-tight text-ink">Agentes</h2>
           <p className="mt-1.5 text-sm text-muted">
             {agents.length > 0
@@ -105,9 +108,7 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
       {/* Banner de erro de API */}
       {apiError && (
         <div className="flex items-start gap-3 rounded-xl border border-danger/30 bg-danger/8 px-5 py-4">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-danger shrink-0 mt-0.5">
-            <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
-          </svg>
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" strokeWidth={1.8} />
           <div>
             <p className="text-sm font-semibold text-danger">API inacessível em {API_BASE}</p>
             <p className="mt-0.5 text-xs text-muted">
@@ -122,9 +123,7 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
       {/* Sem agentes mas API ok — precisa do seed */}
       {!apiError && agents.length === 0 && (
         <div className="flex items-start gap-3 rounded-xl border border-accent/30 bg-accent/8 px-5 py-4">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent shrink-0 mt-0.5">
-            <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
-          </svg>
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-accent" strokeWidth={1.8} />
           <div>
             <p className="text-sm font-semibold text-accent">Banco vazio — rode o seed</p>
             <p className="mt-0.5 text-xs text-muted">
@@ -139,16 +138,16 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
       {agents.length > 0 && (
         <div className="grid gap-4 lg:grid-cols-2">
           {agents.map(agent => (
-            <div key={agent.id} className="group rounded-xl bg-panel border border-line p-5 shadow-panel hover:border-line/80 transition">
+            <div key={agent.id} className="surface rounded-2xl p-5 transition hover:border-accent/30">
               {/* Cabeçalho */}
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg border font-mono text-xs ${
+                  <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl border ${
                     agent.is_active
                       ? 'bg-accent/10 border-accent/30 text-accent'
                       : 'bg-elevated border-line text-muted'
                   }`}>
-                    {(agent.name ?? 'AG').slice(0, 2).toUpperCase()}
+                    <Bot className="h-4 w-4" strokeWidth={1.8} />
                   </div>
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-ink">{agent.name}</div>
@@ -161,6 +160,7 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
                   onClick={() => toggleAgent(agent)}
                   disabled={toggling === agent.id}
                   aria-label={agent.is_active ? 'Desativar agente' : 'Ativar agente'}
+                  data-compact="true"
                   className={`relative h-6 w-11 shrink-0 rounded-full border transition ${
                     agent.is_active ? 'bg-success/20 border-success/40' : 'bg-canvas border-line'
                   } disabled:opacity-50`}
@@ -172,22 +172,19 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
               </div>
 
               {/* ID copiável — principal fix pedido pelo user */}
-              <div className="mt-3 flex items-center gap-2 rounded-md bg-canvas border border-line px-3 py-2">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted/50 shrink-0">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                </svg>
+              {debugMode && <div className="mt-3 flex items-center gap-2 rounded-md bg-canvas border border-line px-3 py-2">
+                <Copy className="h-3.5 w-3.5 shrink-0 text-muted/50" strokeWidth={1.8} />
                 <span className="flex-1 font-mono text-[11px] text-muted truncate">{agent.id}</span>
                 <button
                   onClick={() => copyId(agent.id)}
                   className="focus-ring shrink-0 rounded px-2 py-0.5 text-[10px] font-mono transition hover:bg-elevated text-muted hover:text-ink"
                 >
-                  {copiedId === agent.id ? '✓ copiado' : 'copiar'}
+                  {copiedId === agent.id ? 'copiado' : 'copiar'}
                 </button>
-              </div>
+              </div>}
 
               {/* Dados técnicos */}
-              <div className="mt-3 grid grid-cols-1 gap-3 border-t border-line pt-3 sm:grid-cols-3">
+              {debugMode && <div className="mt-3 grid grid-cols-1 gap-3 border-t border-line pt-3 sm:grid-cols-3">
                 <div>
                   <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted/60 mb-1">Tipo</div>
                   <Badge variant={typeBadge(agent.type)}>
@@ -204,7 +201,7 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
                     {(agent.total_calls ?? 0).toLocaleString('pt-BR')}
                   </span>
                 </div>
-              </div>
+              </div>}
 
               {/* Botão editar — link direto com o ID */}
               <div className="mt-4 flex gap-2">
@@ -212,10 +209,7 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
                   href={`/agents/${encodeURIComponent(agent.id)}`}
                   className="focus-ring flex flex-1 items-center justify-center gap-2 h-9 rounded-md border border-line bg-elevated text-sm text-muted hover:text-ink hover:border-muted transition"
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                  </svg>
+                  <Edit3 className="h-3.5 w-3.5" strokeWidth={1.8} />
                   Editar agente
                 </Link>
               </div>
@@ -225,8 +219,11 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
       )}
 
       {/* Diagrama do pipeline — sempre visível */}
-      <div className="rounded-xl bg-panel border border-line p-5 shadow-panel">
-        <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted mb-4">Fluxo de execução</div>
+      {debugMode && <div className="surface rounded-2xl p-5">
+        <div className="mb-4 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted">
+          <Route className="h-4 w-4" strokeWidth={1.8} />
+          Fluxo de execução
+        </div>
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           {[
             { step: '01', id: 'classifier', label: 'Classifier' },
@@ -257,7 +254,7 @@ export function AgentsClient({ initialAgents, apiError }: AgentsClientProps): JS
           })}
         </div>
         <p className="mt-3 text-xs text-muted/50">Clique em qualquer agente para abrir o editor.</p>
-      </div>
+      </div>}
     </div>
   )
 }
