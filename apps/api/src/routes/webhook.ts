@@ -1,6 +1,6 @@
 // webhook.ts — Recebe webhooks do n8n e valida payloads do WhatsApp
 import { and, desc, eq, gte } from 'drizzle-orm'
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import {
   activateAutomationBlacklist,
@@ -16,6 +16,13 @@ import { enforcePhoneRateLimit } from '../rate-limit'
 import { enqueueMessage } from '../queue/message-queue'
 import { PhoneLockedError, QueryEngine } from '../orchestrator'
 import { recordTrace } from '../monitoring/trace-recorder'
+import { traceEmitter } from '../observability/trace-emitter'
+import {
+  normalizeEvolutionRawPayload,
+  rawEvolutionPayloadSchema,
+  toLegacyEvolutionWebhookPayload,
+  type NormalizedWhatsappEvent
+} from '../webhook/evolution-normalizer'
 
 const webhookPayloadSchema = z.object({
   phone: z.string().min(1),
@@ -64,9 +71,70 @@ const evolutionPayloadSchema = webhookPayloadSchema.extend({
 
 type WebhookPayload = z.infer<typeof webhookPayloadSchema>
 type EvolutionPayload = z.infer<typeof evolutionPayloadSchema>
+type WebhookRouteReply = FastifyReply
 
 function validateAuth(request: FastifyRequest): boolean {
   return request.headers.authorization === `Bearer ${env.WEBHOOK_SECRET}`
+}
+
+function resolveTenantId(request: FastifyRequest): string {
+  const header = request.headers['x-tenant-id']
+  if (typeof header === 'string' && header.trim()) {
+    return header.trim()
+  }
+
+  const body = toRecord(request.body)
+  const bodyTenantId = body ? body.tenant_id : undefined
+  return typeof bodyTenantId === 'string' && bodyTenantId.trim() ? bodyTenantId.trim() : 'default'
+}
+
+async function emitWebhookReceivedTrace(tenantId: string, rawPayload: unknown): Promise<void> {
+  const raw = toRecord(rawPayload)
+  await traceEmitter.emit('webhook_received', {
+    tenant_id: tenantId,
+    data: {
+      instance: readString(raw, 'instance'),
+      event_type: readString(raw, 'event'),
+      raw_size: estimatePayloadSize(rawPayload)
+    }
+  })
+}
+
+async function emitWebhookRejectedTrace(
+  tenantId: string,
+  event: NormalizedWhatsappEvent,
+  reason: string
+): Promise<void> {
+  await traceEmitter.emit('webhook_rejected', {
+    tenant_id: tenantId,
+    phone: event.phone,
+    status: 'ignored',
+    data: {
+      event_type: event.event,
+      instance: event.instance,
+      message_id: event.externalMessageId,
+      reason
+    }
+  })
+}
+
+function estimatePayloadSize(payload: unknown): number {
+  try {
+    return JSON.stringify(payload).length
+  } catch {
+    return 0
+  }
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function readString(source: Record<string, unknown> | null, key: string): string | null {
+  const value = source?.[key]
+  return typeof value === 'string' ? value : null
 }
 
 /**
@@ -132,6 +200,56 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
     }
   })
 
+  app.post('/api/webhook/evolution/raw', async (request, reply) => {
+    const tenantId = resolveTenantId(request)
+    await emitWebhookReceivedTrace(tenantId, request.body)
+
+    if (!validateAuth(request)) {
+      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' })
+    }
+
+    const parsed = rawEvolutionPayloadSchema.safeParse(request.body)
+    if (!parsed.success) {
+      await traceEmitter.emit('webhook_rejected', {
+        tenant_id: tenantId,
+        status: 'error',
+        data: {
+          reason: 'invalid_payload',
+          issues: parsed.error.issues
+        }
+      })
+      return reply.code(400).send({
+        error: 'Invalid Evolution raw payload',
+        code: 'INVALID_PAYLOAD',
+        details: parsed.error.issues
+      })
+    }
+
+    const normalized = normalizeEvolutionRawPayload(parsed.data)
+    if (normalized.event !== 'messages.upsert') {
+      await emitWebhookRejectedTrace(tenantId, normalized, 'unsupported_event')
+      return reply.code(200).send({
+        success: true,
+        action: 'ignored',
+        reason: 'unsupported_event',
+        event: normalized.event
+      })
+    }
+
+    if (normalized.isGroup) {
+      await emitWebhookRejectedTrace(tenantId, normalized, 'group_message')
+      return reply.code(200).send({
+        success: true,
+        action: 'ignored',
+        reason: 'group_message',
+        event: normalized
+      })
+    }
+
+    const legacyPayload = toLegacyEvolutionWebhookPayload(normalized)
+    return processEvolutionPayload(legacyPayload, request, reply, queryEngine)
+  })
+
   app.post('/api/webhook/evolution', async (request, reply) => {
     if (!validateAuth(request)) {
       return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' })
@@ -147,109 +265,156 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
     }
 
     const payload = normalizeEvolutionPayload(parsed.data)
-    const allowed = await enforcePhoneRateLimit(request, reply, payload.phone, WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE)
-    if (!allowed) {
-      return reply
-    }
+    return processEvolutionPayload(payload, request, reply, queryEngine)
+  })
+}
 
-    if (payload.event?.from_me === true || payload.contact_info?.from_me === true) {
-      return handleOutboundEvolutionEvent(payload)
-    }
+async function processEvolutionPayload(
+  payload: EvolutionPayload,
+  request: FastifyRequest,
+  reply: WebhookRouteReply,
+  queryEngine: QueryEngine
+): Promise<Record<string, unknown> | WebhookRouteReply> {
+  const allowed = await enforcePhoneRateLimit(request, reply, payload.phone, WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE)
+  if (!allowed) {
+    return reply
+  }
 
-    if (await isLikelyWacliSelfEcho(payload)) {
-      await recordTrace({
-        phone: payload.phone,
-        agent: 'automation-control',
-        eventType: 'wacli_self_echo_ignored',
-        title: 'Eco de envio WACLI ignorado',
-        data: {
-          message_preview: payload.message.slice(0, 300),
-          remote_jid: payload.event?.remote_jid ?? payload.contact_info?.remoteJid
-        }
-      })
-      return {
-        success: true,
-        should_reply: false,
-        action: 'record_only',
-        reason: 'wacli_self_echo',
-        message: ''
-      }
-    }
+  if (payload.event?.from_me === true || payload.contact_info?.from_me === true) {
+    return handleOutboundEvolutionEvent(payload)
+  }
 
-    if (await isInternalAssistantContact(payload)) {
-      try {
-        const response = await queryEngine.process(payload)
-        return {
-          ...response,
-          should_reply: Boolean(response.message),
-          action: 'reply',
-          reason: 'internal_assistant'
-        }
-      } catch (error) {
-        if (error instanceof PhoneLockedError) {
-          return reply.code(429).send({ error: 'Mensagem anterior ainda processando', code: 'PHONE_LOCKED' })
-        }
+  return processInboundEvolutionPayload(payload, reply, queryEngine)
+}
 
-        throw error
-      }
-    }
+async function processInboundEvolutionPayload(
+  payload: EvolutionPayload,
+  reply: WebhookRouteReply,
+  queryEngine: QueryEngine
+): Promise<Record<string, unknown> | WebhookRouteReply> {
+  if (await isLikelyWacliSelfEcho(payload)) {
+    return handleWacliSelfEcho(payload)
+  }
 
-    const decision = await canReplyAutomatically(payload.phone)
-    if (!decision.allowed) {
-      await getOrCreateLead(payload.phone, payload.name, payload.contact_info)
-      await saveMessage(payload.phone, 'user', payload.message, {
-        message_type: payload.message_type,
-        intent: decision.reason,
-        agent_used: 'automation-control'
-      })
-      await recordTrace({
-        phone: payload.phone,
-        agent: 'automation-control',
-        eventType: 'auto_reply_blocked',
-        title: 'Mensagem registrada sem resposta automática',
-        data: {
-          reason: decision.reason,
-          schedule: decision.schedule,
-          blacklist: decision.blacklist,
-          message_preview: payload.message.slice(0, 300)
-        }
-      })
-      return {
-        success: true,
-        should_reply: false,
-        action: 'record_only',
-        reason: decision.reason,
-        message: '',
-        audio_requested: false,
-        blacklist: decision.blacklist,
-        schedule: decision.schedule,
-        metadata: {
-          lead_id: payload.phone,
-          agent_used: 'automation-control',
-          tokens_used: 0,
-          processing_ms: 0
-        }
-      }
-    }
+  if (await isInternalAssistantContact(payload)) {
+    return processInternalAssistantEvolutionPayload(payload, reply, queryEngine)
+  }
 
-    try {
-      const response = await queryEngine.process(payload)
-      return {
-        ...response,
-        should_reply: Boolean(response.message),
-        action: 'reply',
-        reason: 'allowed',
-        blacklist: decision.blacklist,
-        schedule: decision.schedule
-      }
-    } catch (error) {
-      if (error instanceof PhoneLockedError) {
-        return reply.code(429).send({ error: 'Mensagem anterior ainda processando', code: 'PHONE_LOCKED' })
-      }
+  const decision = await canReplyAutomatically(payload.phone)
+  if (!decision.allowed) {
+    return handleAutomationBlocked(payload, decision)
+  }
 
-      throw error
+  return processAllowedEvolutionPayload(payload, reply, queryEngine, decision)
+}
+
+async function handleWacliSelfEcho(payload: EvolutionPayload): Promise<Record<string, unknown>> {
+  await recordTrace({
+    phone: payload.phone,
+    agent: 'automation-control',
+    eventType: 'wacli_self_echo_ignored',
+    title: 'Eco de envio WACLI ignorado',
+    data: {
+      message_preview: payload.message.slice(0, 300),
+      remote_jid: payload.event?.remote_jid ?? payload.contact_info?.remoteJid
     }
   })
+
+  return {
+    success: true,
+    should_reply: false,
+    action: 'record_only',
+    reason: 'wacli_self_echo',
+    message: ''
+  }
+}
+
+async function processInternalAssistantEvolutionPayload(
+  payload: EvolutionPayload,
+  reply: WebhookRouteReply,
+  queryEngine: QueryEngine
+): Promise<Record<string, unknown> | WebhookRouteReply> {
+  try {
+    const response = await queryEngine.process(payload)
+    return {
+      ...response,
+      should_reply: Boolean(response.message),
+      action: 'reply',
+      reason: 'internal_assistant'
+    }
+  } catch (error) {
+    if (error instanceof PhoneLockedError) {
+      return reply.code(429).send({ error: 'Mensagem anterior ainda processando', code: 'PHONE_LOCKED' })
+    }
+
+    throw error
+  }
+}
+
+async function handleAutomationBlocked(
+  payload: EvolutionPayload,
+  decision: Awaited<ReturnType<typeof canReplyAutomatically>>
+): Promise<Record<string, unknown>> {
+  await getOrCreateLead(payload.phone, payload.name, payload.contact_info)
+  await saveMessage(payload.phone, 'user', payload.message, {
+    message_type: payload.message_type,
+    intent: decision.reason,
+    agent_used: 'automation-control'
+  })
+  await recordTrace({
+    phone: payload.phone,
+    agent: 'automation-control',
+    eventType: 'auto_reply_blocked',
+    title: 'Mensagem registrada sem resposta automática',
+    data: {
+      reason: decision.reason,
+      schedule: decision.schedule,
+      blacklist: decision.blacklist,
+      message_preview: payload.message.slice(0, 300)
+    }
+  })
+
+  return {
+    success: true,
+    should_reply: false,
+    action: 'record_only',
+    reason: decision.reason,
+    message: '',
+    audio_requested: false,
+    blacklist: decision.blacklist,
+    schedule: decision.schedule,
+    metadata: {
+      lead_id: payload.phone,
+      agent_used: 'automation-control',
+      tokens_used: 0,
+      processing_ms: 0
+    }
+  }
+}
+
+async function processAllowedEvolutionPayload(
+  payload: EvolutionPayload,
+  reply: WebhookRouteReply,
+  queryEngine: QueryEngine,
+  decision: Awaited<ReturnType<typeof canReplyAutomatically>>
+): Promise<Record<string, unknown> | WebhookRouteReply> {
+  try {
+    const response = await queryEngine.process(payload)
+    return {
+      ...response,
+      should_reply: Boolean(response.message),
+      action: 'reply',
+      reason: 'allowed',
+      blacklist: decision.blacklist,
+      schedule: decision.schedule
+    }
+  } catch (error) {
+    if (error instanceof PhoneLockedError) {
+      return reply.code(429).send({ error: 'Mensagem anterior ainda processando', code: 'PHONE_LOCKED' })
+    }
+
+    throw error
+  }
 }
 
 async function handleOutboundEvolutionEvent(payload: EvolutionPayload): Promise<Record<string, unknown>> {
