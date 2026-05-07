@@ -134,6 +134,14 @@ export class TranscriptIngestor {
     duplicate: MessageEvent,
     baseClassification: TranscriptClassification
   ): Promise<TranscriptIngestResult> {
+    if (input.event.fromMe && duplicate.direction === 'outbound' && duplicate.delivery_status === 'intended') {
+      await this.repository.updateDeliveryStatus(
+        duplicate.id,
+        'sent',
+        input.event.externalMessageId || duplicate.external_message_id || undefined
+      )
+    }
+
     await this.emitDedupedTrace(input.tenantId, input.event, duplicate, 'duplicate_detected')
 
     return {

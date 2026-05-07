@@ -1,7 +1,9 @@
 // wacli.ts — Tool controlada para consultar e operar WhatsApp via wacli
 import { z } from 'zod'
 import { getSettingValue } from '../automation/control'
+import { MessageEventsRepository } from '../db/repositories/message-events.repository'
 import { saveMessage } from '../memory/persistent'
+import { WacliSyncService } from '../wacli/sync-service'
 
 const wacliSchema = z.object({
   action: z.enum(['doctor', 'search_messages', 'send_text', 'backfill', 'list_groups', 'group_info']),
@@ -29,12 +31,38 @@ export async function executeWacliTool(rawInput: unknown): Promise<Record<string
   }
 
   const input = wacliSchema.parse(rawInput ?? {})
+  if (input.action === 'backfill') {
+    return executeBackfill(input)
+  }
+
   const command = (await getSettingValue('wacli_command', 'wacli')).trim() || 'wacli'
   const store = (await getSettingValue('wacli_store', '')).trim()
   const args = buildWacliArgs(input, store)
   const result = await runCommand(command, args, input.action === 'send_text' ? 120_000 : 30_000)
   await registerSuccessfulIndividualSend(input, result)
   return result
+}
+
+async function executeBackfill(input: z.infer<typeof wacliSchema>): Promise<Record<string, unknown>> {
+  if (!input.phone && !input.chat_jid) {
+    throw new Error('chat_jid ou phone é obrigatório para backfill')
+  }
+
+  const service = new WacliSyncService()
+  const phone = input.phone?.replace(/\D/g, '') ?? ''
+  const result = await service.sync({
+    tenantId: 'default',
+    phone: phone || input.chat_jid || '',
+    remoteJid: input.chat_jid ?? null,
+    requests: input.requests,
+    count: input.count
+  })
+
+  return {
+    success: result.error === null,
+    action: 'backfill',
+    ...result
+  }
 }
 
 function buildWacliArgs(input: z.infer<typeof wacliSchema>, store: string): string[] {
@@ -126,15 +154,58 @@ async function registerSuccessfulIndividualSend(
   input: z.infer<typeof wacliSchema>,
   result: Record<string, unknown>
 ): Promise<void> {
-  if (input.action !== 'send_text' || result.success !== true || !input.phone || !input.message) {
+  if (input.action !== 'send_text' || result.success !== true || !input.message) {
     return
   }
 
-  await saveMessage(input.phone.replace(/\D/g, '') || input.phone, 'assistant', input.message, {
+  const target = input.phone ?? input.chat_jid ?? ''
+  const phone = target.endsWith('@g.us') ? target.replace('@g.us', '') : target.replace(/\D/g, '') || target
+  await new MessageEventsRepository().insert({
+    tenant_id: 'default',
+    conversation_id: null,
+    lead_phone: phone,
+    external_message_id: extractExternalMessageId(result) ?? buildWacliSendFallbackId(phone, input.message),
+    source: 'wacli',
+    source_event: 'wacli.send_text',
+    direction: 'outbound',
+    from_me: true,
+    sender_type: 'internal_assistant',
+    role: 'assistant',
+    content: input.message,
+    message_type: 'conversation',
+    processed_type: 'text',
+    media_url: null,
+    quoted_external_message_id: null,
+    quoted_content: null,
+    remote_jid: input.chat_jid ?? `${phone}@s.whatsapp.net`,
+    instance: null,
+    instance_id: null,
+    chatwoot_conversation_id: null,
+    chatwoot_inbox_id: null,
+    chatwoot_message_id: null,
+    delivery_status: 'intended',
+    batch_id: null,
+    error_message: null,
+    raw_payload: result,
+    whatsapp_timestamp: Math.floor(Date.now() / 1000)
+  })
+
+  await saveMessage(phone, 'assistant', input.message, {
     message_type: 'text',
     intent: 'internal_wacli_send',
     agent_used: 'internal-assistant-wacli'
   })
+}
+
+function extractExternalMessageId(result: Record<string, unknown>): string | null {
+  const stdout = toRecord(result.stdout)
+  const data = toRecord(stdout?.data)
+  const key = toRecord(data?.key) ?? toRecord(stdout?.key)
+  return readString(key, 'id') ?? readString(data, 'id') ?? readString(stdout, 'id')
+}
+
+function buildWacliSendFallbackId(phone: string, message: string): string {
+  return `wacli-send:${phone}:${Date.now()}:${message.slice(0, 80)}`
 }
 
 function parseMaybeJson(value: string): unknown {
@@ -142,8 +213,19 @@ function parseMaybeJson(value: string): unknown {
   if (!trimmed) return ''
 
   try {
-    return JSON.parse(trimmed) as unknown
+    return JSON.parse(trimmed)
   } catch {
     return trimmed.slice(0, 8000)
   }
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function readString(source: Record<string, unknown> | null, key: string): string | null {
+  const value = source?.[key]
+  return typeof value === 'string' && value.trim() ? value : null
 }

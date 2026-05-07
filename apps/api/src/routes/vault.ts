@@ -36,7 +36,11 @@ export async function registerVaultRoutes(app: FastifyInstance): Promise<void> {
     return { filename, content }
   })
 
-  app.put('/api/vault/_global/files/:filename', async (request) => {
+  app.put('/api/vault/_global/files/:filename', async (request, reply) => {
+    if (isWacliWriteRequest(request.headers)) {
+      return reply.code(403).send({ error: 'Forbidden', code: 'WACLI_VAULT_WRITE_FORBIDDEN' })
+    }
+
     const { filename } = z.object({ filename: z.string().min(1) }).parse(request.params)
     const { content } = fileBodySchema.parse(request.body)
     await vault.writeGlobal(filename, content)
@@ -54,7 +58,11 @@ export async function registerVaultRoutes(app: FastifyInstance): Promise<void> {
     return { filename: params.filename, content }
   })
 
-  app.put('/api/vault/:phone/files/:filename', async (request) => {
+  app.put('/api/vault/:phone/files/:filename', async (request, reply) => {
+    if (isWacliWriteRequest(request.headers)) {
+      return reply.code(403).send({ error: 'Forbidden', code: 'WACLI_VAULT_WRITE_FORBIDDEN' })
+    }
+
     const params = fileParamsSchema.parse(request.params)
     const body = fileBodySchema.parse(request.body)
     await vault.write(params.phone, params.filename, body.content)
@@ -72,4 +80,13 @@ export async function registerVaultRoutes(app: FastifyInstance): Promise<void> {
     await vault.delete(params.phone)
     return { success: true }
   })
+}
+
+export function isWacliWriteRequest(headers: Record<string, string | string[] | undefined>): boolean {
+  const source = headers['x-source'] ?? headers['x-attendentai-source']
+  if (Array.isArray(source)) {
+    return source.some((value) => value.toLowerCase() === 'wacli')
+  }
+
+  return typeof source === 'string' && source.toLowerCase() === 'wacli'
 }

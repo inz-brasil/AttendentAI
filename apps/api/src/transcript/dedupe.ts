@@ -67,8 +67,8 @@ export class TranscriptDedupe {
   }
 
   private async findExternalDuplicate(input: TranscriptDedupeInput): Promise<MessageEvent | null> {
-    if (input.source === 'wacli') {
-      // Backfill WACLI é fallback do provedor: se a Evolution já registrou o mesmo id, não duplica.
+    if (input.source === 'wacli' || input.event.fromMe) {
+      // WACLI e echoes fromMe são fallback/cross-source: external id igual nunca deve duplicar.
       return this.repository.findByExternalIdAnySource(input.tenantId, input.event.externalMessageId)
     }
 

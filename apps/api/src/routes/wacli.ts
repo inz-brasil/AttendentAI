@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { getSettingValue, upsertSetting } from '../automation/control'
+import { WacliSyncService } from '../wacli/sync-service'
 
 type ManagedProcess = ReturnType<typeof Bun.spawn>
 
@@ -16,6 +17,15 @@ interface ProcessState {
 }
 
 const processNameSchema = z.object({ name: z.enum(['auth', 'sync']) })
+const backfillBodySchema = z.object({
+  tenant_id: z.string().min(1).default('default'),
+  phone: z.string().optional(),
+  chat_jid: z.string().optional(),
+  requests: z.number().int().min(1).max(20).default(1),
+  count: z.number().int().min(1).max(200).default(50)
+}).refine((value) => Boolean(value.phone?.trim() || value.chat_jid?.trim()), {
+  message: 'phone ou chat_jid é obrigatório'
+})
 const maxOutputChars = 12000
 const authState: ProcessState = createProcessState()
 const syncState: ProcessState = createProcessState()
@@ -79,6 +89,18 @@ export async function registerWacliRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.get('/api/wacli/sync/output', async () => serializeState(syncState))
+
+  app.post('/api/wacli/backfill', async (request) => {
+    const body = backfillBodySchema.parse(request.body ?? {})
+    const service = new WacliSyncService()
+    return service.sync({
+      tenantId: body.tenant_id,
+      phone: body.phone?.replace(/\D/g, '') || body.chat_jid || '',
+      remoteJid: body.chat_jid ?? null,
+      requests: body.requests,
+      count: body.count
+    })
+  })
 
   app.post('/api/wacli/enable', async () => {
     await upsertSetting('wacli_enabled', 'true')
@@ -267,7 +289,7 @@ function parseMaybeJson(value: string): unknown {
   const trimmed = value.trim()
   if (!trimmed) return ''
   try {
-    return JSON.parse(trimmed) as unknown
+    return JSON.parse(trimmed)
   } catch {
     return trimmed.slice(0, 8000)
   }
