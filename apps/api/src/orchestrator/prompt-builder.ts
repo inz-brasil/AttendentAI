@@ -4,6 +4,7 @@ import pino from 'pino'
 import { MCP_ENABLED } from '../config/constants'
 import { env } from '../config/env'
 import { WHATSAPP_FORMATTING_RULES } from '../config/whatsapp-formatting'
+import type { AgentContextPackage } from '../context/context-assembler'
 import { db } from '../db/client'
 import { agents, settings } from '../db/schema'
 import { SkillsLoader } from '../skills/loader'
@@ -27,6 +28,7 @@ export interface PromptBuilderInput {
   vaultContext: string
   skillContext: string
   selectedSkillIds?: string[]
+  contextPackage?: AgentContextPackage
 }
 
 export interface PromptBuildResult {
@@ -81,13 +83,23 @@ export class PromptBuilder {
     ])
 
     const basePrompt = this.replacePromptVariables(configuredPrompt, input, agentName, companyName, agentTone)
-    const prompt = [
-      this.buildIdentityLayer({ basePrompt, agentName, companyName, agentTone, globalContext: globalContext.content }),
-      this.buildSkillsLayer(input.skillContext),
-      this.buildLeadDataLayer(input),
-      this.buildMcpToolsLayer(),
-      this.buildOutputLayer(httpToolEnabled)
-    ].join('\n\n---\n\n')
+    const prompt = input.contextPackage
+      ? this.buildContextAwarePrompt({
+          basePrompt,
+          agentName,
+          companyName,
+          agentTone,
+          globalContext: globalContext.content,
+          contextPackage: input.contextPackage,
+          httpToolEnabled
+        })
+      : [
+          this.buildIdentityLayer({ basePrompt, agentName, companyName, agentTone, globalContext: globalContext.content }),
+          this.buildSkillsLayer(input.skillContext),
+          this.buildLeadDataLayer(input),
+          this.buildMcpToolsLayer(),
+          this.buildOutputLayer(httpToolEnabled)
+        ].join('\n\n---\n\n')
 
     log.info({ system_prompt: prompt }, 'system prompt built')
     return {
@@ -96,6 +108,111 @@ export class PromptBuilder {
       globalFiles: globalContext.files,
       promptChars: prompt.length
     }
+  }
+
+  private buildContextAwarePrompt(input: {
+    basePrompt: string
+    agentName: string
+    companyName: string
+    agentTone: string
+    globalContext: string
+    contextPackage: AgentContextPackage
+    httpToolEnabled: string
+  }): string {
+    return [
+      this.buildStaticInstructionsLayer(input),
+      this.buildWhatsAppFormattingLayer(),
+      this.buildCurrentTurnLayer(input.contextPackage),
+      this.buildStructuredLeadLayer(input.contextPackage),
+      this.buildRecentTranscriptLayer(input.contextPackage),
+      this.buildRelevantMemoryLayer(input.contextPackage, input.globalContext),
+      this.buildSelectedSkillsLayer(input.contextPackage),
+      this.buildToolsContextLayer(input.contextPackage, input.httpToolEnabled)
+    ].join('\n\n---\n\n')
+  }
+
+  private buildStaticInstructionsLayer(input: {
+    basePrompt: string
+    agentName: string
+    companyName: string
+    agentTone: string
+  }): string {
+    const fallbackPrompt = `Nome do atendente: ${input.agentName}
+Empresa: ${input.companyName}
+Tom e estilo: ${input.agentTone}`
+
+    return `INSTRUÇÕES ESTÁTICAS DO AGENTE
+${input.basePrompt || fallbackPrompt}
+
+Contexto operacional:
+Nome do atendente: ${input.agentName}
+Empresa: ${input.companyName}
+Tom e estilo: ${input.agentTone}
+
+${antiHallucinationRules}`
+  }
+
+  private buildWhatsAppFormattingLayer(): string {
+    return `REGRAS DE FORMATAÇÃO WHATSAPP
+${WHATSAPP_FORMATTING_RULES}`
+  }
+
+  private buildCurrentTurnLayer(contextPackage: AgentContextPackage): string {
+    return `PEDIDO ATUAL
+Mensagem atual:
+${contextPackage.currentTurn.message || '(sem texto)'}
+
+Mensagem marcada pelo usuário:
+${contextPackage.currentTurn.quotedText ?? '(nenhuma)'}
+
+Data/hora atual (${contextPackage.currentTurn.timezone}): ${contextPackage.currentTurn.currentTime}`
+  }
+
+  private buildStructuredLeadLayer(contextPackage: AgentContextPackage): string {
+    const lead = contextPackage.leadState
+    return `ESTADO ESTRUTURADO DO LEAD
+Telefone: ${lead.phone}
+Nome: ${lead.name ?? 'não informado'}
+Status: ${lead.status}
+Automação pausada: ${lead.automationPaused ? 'sim' : 'não'}
+Última interação: ${lead.lastInteraction?.toISOString() ?? 'não registrada'}`
+  }
+
+  private buildRecentTranscriptLayer(contextPackage: AgentContextPackage): string {
+    const lines = contextPackage.recentTranscript.map((item) => {
+      const timestamp = new Date(item.timestamp * 1000).toISOString()
+      return `[${timestamp}] ${item.role} (${item.senderType}): ${item.content}`
+    })
+
+    return `ÚLTIMAS MENSAGENS REAIS
+${lines.length > 0 ? lines.join('\n') : 'Sem transcript recente em message_events.'}`
+  }
+
+  private buildRelevantMemoryLayer(contextPackage: AgentContextPackage, globalContext: string): string {
+    return `MEMÓRIA RESUMIDA E FATOS ESTRUTURADOS
+Vault semântico do lead:
+${contextPackage.relevantMemory || 'Sem memória relevante no vault.'}
+
+Contexto global aprovado:
+${this.truncateBlock(globalContext || 'sem contexto global cadastrado', 2500)}`
+  }
+
+  private buildSelectedSkillsLayer(contextPackage: AgentContextPackage): string {
+    return `SKILLS SELECIONADAS
+${contextPackage.selectedSkills || 'Nenhuma skill ativa selecionada para esta resposta.'}`
+  }
+
+  private buildToolsContextLayer(contextPackage: AgentContextPackage, httpToolEnabled: string): string {
+    return `TOOLS DISPONÍVEIS
+${contextPackage.toolsContext || 'Nenhuma tool adicional disponível no contexto.'}
+${httpToolEnabled === 'true' ? 'Use tools externas apenas quando houver dados confirmados para executar ação.' : 'Tools HTTP externas estão desativadas para este agente.'}
+
+INSTRUÇÃO DE SAÍDA
+Responda APENAS com o texto da mensagem final.
+Faça no máximo UMA pergunta direta na resposta final.
+Se houver duas perguntas possíveis, escolha a mais importante para avançar a conversa agora.
+Se for curto e adequado para áudio, inclua [AUDIO_OK] ao final.
+Máximo 3 parágrafos.`
   }
 
   private async getSetting(key: string, fallback: string): Promise<string> {
@@ -251,16 +368,21 @@ Máximo 3 parágrafos`
   }
 
   private async loadGlobalVaultContext(): Promise<{ content: string; files: string[] }> {
-    const files = await this.vault.listGlobalFiles()
-    const contents = await Promise.all(
-      files.map(async (file) => {
-        const content = await this.vault.readGlobal(file)
-        return content.trim() ? `# ${file}\n${content.trim()}` : ''
-      })
-    )
-    return {
-      content: contents.filter(Boolean).join('\n\n'),
-      files
+    try {
+      const files = await this.vault.listGlobalFiles()
+      const contents = await Promise.all(
+        files.map(async (file) => {
+          const content = await this.vault.readGlobal(file)
+          return content.trim() ? `# ${file}\n${content.trim()}` : ''
+        })
+      )
+      return {
+        content: contents.filter(Boolean).join('\n\n'),
+        files
+      }
+    } catch (error) {
+      log.warn({ err: error }, 'failed to load global vault context')
+      return { content: '', files: [] }
     }
   }
 

@@ -70,13 +70,16 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
    * @returns Lista de mensagens para a OpenAI API.
    */
   protected override buildMessages(input: ResponderInput): ChatCompletionMessageParam[] {
-    const recentMessages = input.recent_messages
-      .filter((message) => message.role && message.content?.trim())
-      .slice(-4)
-      .map((message): ChatCompletionMessageParam => ({
-        role: message.role === 'assistant' || message.role === 'human_agent' ? 'assistant' : 'user',
-        content: this.truncateContextMessage(message.content ?? '')
-      }))
+    const contextPackagePrompt = input.system_prompt.includes('PEDIDO ATUAL') && input.system_prompt.includes('ÚLTIMAS MENSAGENS REAIS')
+    const recentMessages = contextPackagePrompt
+      ? []
+      : input.recent_messages
+          .filter((message) => message.role && message.content?.trim())
+          .slice(-4)
+          .map((message): ChatCompletionMessageParam => ({
+            role: message.role === 'assistant' || message.role === 'human_agent' ? 'assistant' : 'user',
+            content: this.truncateContextMessage(message.content ?? '')
+          }))
 
     return [
       {
@@ -104,7 +107,7 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
           input.scheduling_required && !input.scheduling_result
             ? 'Atenção: a conversa parece exigir agendamento, mas o agente de agendamento não executou. NÃO confirme reunião; diga que vai verificar a agenda ou peça o dado faltante.'
             : 'Atenção de agendamento: sem bloqueio adicional.',
-          `Mensagem recebida agora: ${input.message}`,
+          contextPackagePrompt ? 'Mensagem recebida agora: ver seção PEDIDO ATUAL no system prompt.' : `Mensagem recebida agora: ${input.message}`,
           'Não repita uma saudação ou pergunta que você já enviou nas mensagens anteriores.'
         ].join('\n')
       }

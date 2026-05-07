@@ -86,7 +86,7 @@ export class ConversationBatcher {
     compiledMessage: string,
     batchId: string
   ): Promise<WebhookResponse> {
-    const payload = buildWebhookPayload(job, firstEvent, compiledMessage)
+    const payload = buildWebhookPayload(job, firstEvent, compiledMessage, batchId)
     await traceEmitter.emit('agent_called', {
       tenant_id: job.tenantId,
       batch_id: batchId,
@@ -189,7 +189,7 @@ function buildDecisionEvent(job: InboundQueueJob, firstEvent: MessageEvent, text
   }
 }
 
-function buildWebhookPayload(job: InboundQueueJob, firstEvent: MessageEvent, message: string): WebhookPayload {
+function buildWebhookPayload(job: InboundQueueJob, firstEvent: MessageEvent, message: string, batchId: string): WebhookPayload {
   const timezone = 'America/Sao_Paulo'
 
   return {
@@ -212,6 +212,7 @@ function buildWebhookPayload(job: InboundQueueJob, firstEvent: MessageEvent, mes
       chatwoot_conversation_id: firstEvent.chatwoot_conversation_id ?? undefined,
       chatwoot_inbox_id: firstEvent.chatwoot_inbox_id ?? undefined,
       chatwoot_message_id: firstEvent.chatwoot_message_id ?? undefined,
+      batch_id: batchId,
       tenant_id: job.tenantId
     }
   }

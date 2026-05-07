@@ -5,6 +5,7 @@ import { ClassifierAgent } from '../agents/classifier'
 import { MCP_ENABLED } from '../config/constants'
 import { env } from '../config/env'
 import { normalizeWhatsAppFormatting } from '../config/whatsapp-formatting'
+import { ContextAssembler } from '../context/context-assembler'
 import { IdentifierAgent, type LeadFieldsToUpdate } from '../agents/identifier'
 import { InternalAssistantAgent } from '../agents/internal-assistant'
 import { MemoryAgent } from '../agents/memory-agent'
@@ -71,6 +72,7 @@ const log = pino({ name: 'attendentai-orchestrator' })
 
 export class QueryEngine {
   private readonly classifier = new ClassifierAgent()
+  private readonly contextAssembler = new ContextAssembler()
   private readonly identifier = new IdentifierAgent()
   private readonly internalAssistant = new InternalAssistantAgent()
   private readonly memoryAgent = new MemoryAgent()
@@ -255,6 +257,18 @@ export class QueryEngine {
       classification,
       candidates: skillCandidates
     })
+    const contextPackage = await this.contextAssembler.assemble({
+      tenantId: this.getStringContactField(payload.contact_info, 'tenant_id') ?? 'default',
+      phone: payload.phone,
+      currentMessage: payload.message,
+      quotedText: this.getStringContactField(payload.contact_info, 'quoted_content') ?? null,
+      currentTime: runtimeContext.currentTime,
+      timezone: runtimeContext.timezone,
+      relevantMemory: vaultContext,
+      selectedSkills: routedSkills.contextSummary,
+      toolsContext: await this.buildToolsContext(),
+      batchId: this.getStringContactField(payload.contact_info, 'batch_id') ?? null
+    })
     const promptBuild = await this.promptBuilder.buildDetailed({
       responderId: 'responder',
       lead: {
@@ -270,9 +284,10 @@ export class QueryEngine {
         ...refreshedMemory,
         history_summary: liveSummary
       },
-      vaultContext,
-      skillContext: routedSkills.contextSummary,
-      selectedSkillIds: routedSkills.selectedSkillIds
+      vaultContext: contextPackage.relevantMemory,
+      skillContext: contextPackage.selectedSkills,
+      selectedSkillIds: routedSkills.selectedSkillIds,
+      contextPackage
     })
     const systemPrompt = promptBuild.prompt
     await recordTrace({
@@ -285,12 +300,13 @@ export class QueryEngine {
         prompt_chars: promptBuild.promptChars,
         system_prompt_final: promptBuild.prompt,
         live_summary: liveSummary,
+        context_package_debug: contextPackage.debug,
         responder_runtime: {
           current_message: truncateTraceText(payload.message, 500),
-          recent_messages_count: refreshedMemory.recent_messages.length,
-          recent_messages_preview: refreshedMemory.recent_messages.slice(-4).map((message) => ({
+          recent_messages_count: contextPackage.recentTranscript.length,
+          recent_messages_preview: contextPackage.recentTranscript.slice(-4).map((message) => ({
             role: message.role,
-            content_preview: truncateTraceText(message.content ?? '', 350)
+            content_preview: truncateTraceText(message.content, 350)
           }))
         },
         skills: promptBuild.skills,
@@ -402,7 +418,10 @@ export class QueryEngine {
       mcp_tools: mcpTools,
       scheduling_required: shouldRunScheduling,
       scheduling_result: schedulingResult,
-      recent_messages: refreshedMemory.recent_messages
+      recent_messages: contextPackage.recentTranscript.map((message) => ({
+        role: message.role,
+        content: message.content
+      }))
     })
     const guardedText = this.normalizeWhatsAppResponse(response.text)
     if (guardedText !== response.text) {
@@ -970,6 +989,15 @@ export class QueryEngine {
 
   private async isHttpToolEnabled(): Promise<boolean> {
     return (await this.getSettingValue('tool_http_enabled')).trim().toLowerCase() === 'true'
+  }
+
+  private async buildToolsContext(): Promise<string> {
+    const httpEnabled = await this.isHttpToolEnabled()
+    const mcpEnabled = await this.isMcpEnabled()
+    return [
+      httpEnabled ? '- http_request: disponível para webhooks/APIs quando houver dados confirmados' : '- http_request: desativada',
+      mcpEnabled ? '- MCP: disponível conforme tools vinculadas ao agente' : '- MCP: desativado'
+    ].join('\n')
   }
 
   private async isMcpEnabled(): Promise<boolean> {
