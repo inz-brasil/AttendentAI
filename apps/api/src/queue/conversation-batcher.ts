@@ -3,6 +3,7 @@ import { BATCH_MAX_MESSAGES } from '../config/constants'
 import type { MessageEvent } from '../db/repositories/message-events.repository'
 import { traceEmitter } from '../observability/trace-emitter'
 import { AutomationDecisionEngine } from '../automation/decision-engine'
+import { ResponseDispatcher } from '../delivery/dispatcher'
 import type { QueryEngineOptions, WebhookPayload, WebhookResponse } from '../orchestrator'
 import { TranscriptRepository } from '../transcript/repository'
 import type { NormalizedWhatsappEvent } from '../webhook/evolution-normalizer'
@@ -27,7 +28,8 @@ export class ConversationBatcher {
   constructor(
     private readonly repository = new TranscriptRepository(),
     private readonly decisionEngine = new AutomationDecisionEngine(),
-    private readonly orchestrator: OrchestratorClient | null = null
+    private readonly orchestrator: OrchestratorClient | null = null,
+    private readonly dispatcher = new ResponseDispatcher()
   ) {}
 
   /**
@@ -72,9 +74,14 @@ export class ConversationBatcher {
     })
 
     const response = await this.callOrchestrator(job, firstEvent, compiledMessage, batchId)
+    const delivery = await this.dispatchResponse(job, firstEvent, response, batchId)
     await this.emitBatchProcessed(job, batchId, events.length, 'ok', {
       reason: decision.reason,
-      response_chars: response.message.length
+      response_chars: response.message.length,
+      delivery_status: delivery.status,
+      delivery_mode: delivery.mode,
+      delivery_event_id: delivery.intendedEventId,
+      delivery_error: delivery.errorMessage
     }, startedAt)
 
     return { batchId, processed: events.length, shouldReply: true, reason: decision.reason, responseMessage: response.message }
@@ -108,6 +115,30 @@ export class ConversationBatcher {
     })
 
     return response
+  }
+
+  private async dispatchResponse(
+    job: InboundQueueJob,
+    firstEvent: MessageEvent,
+    response: WebhookResponse,
+    batchId: string
+  ) {
+    const raw = toRecord(firstEvent.raw_payload)
+    return this.dispatcher.dispatch({
+      tenantId: job.tenantId,
+      batchId,
+      phone: job.phone,
+      remoteJid: firstEvent.remote_jid,
+      instance: firstEvent.instance,
+      instanceId: firstEvent.instance_id ?? job.instanceId,
+      evolutionUrl: readString(raw, 'server_url') ?? readString(raw, 'evolutionUrl'),
+      evolutionLocalUrl: readString(raw, 'url_evolution_local') ?? readString(raw, 'evolutionLocalUrl'),
+      apiKey: readString(raw, 'apikey'),
+      text: response.message,
+      audioRequested: response.audio_requested,
+      senderType: 'bot',
+      sourceEvent: 'orchestrator.response'
+    })
   }
 
   private async emitBatchProcessed(
@@ -212,8 +243,22 @@ function buildWebhookPayload(job: InboundQueueJob, firstEvent: MessageEvent, mes
       chatwoot_conversation_id: firstEvent.chatwoot_conversation_id ?? undefined,
       chatwoot_inbox_id: firstEvent.chatwoot_inbox_id ?? undefined,
       chatwoot_message_id: firstEvent.chatwoot_message_id ?? undefined,
+      url_evolution: readString(toRecord(firstEvent.raw_payload), 'server_url') ?? undefined,
+      url_evolution_local: readString(toRecord(firstEvent.raw_payload), 'url_evolution_local') ?? undefined,
+      apikey: readString(toRecord(firstEvent.raw_payload), 'apikey') ?? undefined,
       batch_id: batchId,
       tenant_id: job.tenantId
     }
   }
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function readString(source: Record<string, unknown> | null, key: string): string | null {
+  const value = source?.[key]
+  return typeof value === 'string' && value.trim() ? value : null
 }

@@ -8,7 +8,7 @@ import { env } from '../config/env'
 import { WHATSAPP_FORMATTING_RULES } from '../config/whatsapp-formatting'
 import { MCPRegistry } from '../mcp/registry'
 import { ToolExecutor } from '../mcp/tool-executor'
-import { executeRegisteredTool, httpRequestToolDefinition } from '../tools'
+import { executeRegisteredTool, evolutionSendToolDefinition, httpRequestToolDefinition } from '../tools'
 import { BaseAgent, type AgentInput, type AgentRunMetadata, type AgentToolTrace } from './base-agent'
 import type { ClassificationOutput } from './classifier'
 import type { SchedulingAgentOutput } from './scheduling-agent'
@@ -19,6 +19,7 @@ Mantenha respostas curtas (máximo 3 parágrafos). Se a resposta for adequada pa
 sem links, sem formatação), inclua [AUDIO_OK] ao final.
 Quando houver um link de webhook/API e dados confirmados para executar uma ação externa, use a tool http_request
 com JSON objetivo antes de responder ao lead.
+Use evolution_send só para mensagens ativas diretamente ligadas ao atendimento atual, como chamar um humano ou avisar confirmação de reunião ao próprio lead. Nunca envie para terceiros sem confirmação explícita.
 Quando receber resultado do agente de agendamento, siga exatamente esse resultado: confirme apenas eventos criados
 com sucesso, peça dados faltantes quando solicitado e não prometa agendamento sem event_id.
 Nunca execute comandos, código, relatórios, alterações de sistema, vault, banco ou agenda administrativa para cliente externo.
@@ -120,7 +121,7 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
    * @returns Tools disponíveis.
    */
   protected override getTools(input: ResponderInput): ChatCompletionTool[] {
-    const tools = input.tools_enabled ? [httpRequestToolDefinition] : []
+    const tools = input.tools_enabled ? [httpRequestToolDefinition, evolutionSendToolDefinition] : []
     return input.mcp_enabled ? [...tools, ...input.mcp_tools] : tools
   }
 

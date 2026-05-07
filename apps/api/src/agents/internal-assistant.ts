@@ -13,6 +13,7 @@ import { leads, mcpCredentials, mcpServers } from '../db/schema'
 import { loadMemory, saveMessage } from '../memory/persistent'
 import {
   executeRegisteredTool,
+  evolutionSendToolDefinition,
   httpRequestToolDefinition,
   leadLookupToolDefinition,
   platformEditorToolDefinition,
@@ -30,8 +31,8 @@ Use tools sempre que a pergunta envolver números, leads, vault, agenda, histór
 Para perguntas como "quantos atendimentos hoje", use platform_stats com period="today" e responda usando atendimentos_unicos.
 Para buscar dados de leads, use lead_lookup. Para ler memória, histórico ou notas, use vault_read.
 Para criar, remarcar, cancelar ou consultar reunião de um lead, use scheduling_action.
-Quando scheduling_action retornar user_message, você pode enviar para outro número usando http_request se o operador pedir ou se houver webhook configurado na instrução.
-Para envio ativo, chame http_request com JSON contendo pelo menos phone e message. Nunca diga que foi enviado pelo WhatsApp antes do http_request retornar sucesso.
+Quando scheduling_action retornar user_message, você pode enviar para outro número usando evolution_send se o operador pedir.
+Para envio ativo pelo WhatsApp, chame evolution_send com recipients e messages. Nunca diga que foi enviado antes da tool retornar sucesso.
 Não confunda histórico registrado com mensagem entregue: delivery_status=registered_only não significa envio externo.
 Para ligar/desligar o agente, configurar horário automático ou pausar/liberar leads, use system_control.
 Para consultar histórico WhatsApp sincronizado, listar grupos ou enviar aviso via WhatsApp CLI a pedido explícito do admin, use wacli. Para grupos, primeiro use action="list_groups" para achar o chat_jid @g.us; depois use action="send_text" com chat_jid.
@@ -149,6 +150,7 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
       leadLookupToolDefinition,
       vaultReadToolDefinition,
       schedulingActionToolDefinition,
+      evolutionSendToolDefinition,
       httpRequestToolDefinition,
       systemControlToolDefinition,
       wacliToolDefinition,

@@ -996,6 +996,7 @@ export class QueryEngine {
     const mcpEnabled = await this.isMcpEnabled()
     return [
       httpEnabled ? '- http_request: disponível para webhooks/APIs quando houver dados confirmados' : '- http_request: desativada',
+      httpEnabled ? '- evolution_send: disponível para envio WhatsApp ativo confirmado via Evolution' : '- evolution_send: desativada',
       mcpEnabled ? '- MCP: disponível conforme tools vinculadas ao agente' : '- MCP: desativado'
     ].join('\n')
   }

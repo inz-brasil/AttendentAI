@@ -1,5 +1,6 @@
 // index.ts — Registry de tools disponíveis para agentes LLM
 import type { ChatCompletionTool } from 'openai/resources/chat/completions'
+import { executeEvolutionSendTool } from './evolution-send'
 import { executeHttpRequestTool } from './http-request'
 import { executePlatformEditorTool } from './platform-editor'
 import { executeLeadLookupTool, executePlatformStatsTool, executeVaultReadTool } from './platform'
@@ -40,6 +41,51 @@ export const httpRequestToolDefinition: ChatCompletionTool = {
         }
       },
       required: ['url']
+    }
+  }
+}
+
+export const evolutionSendToolDefinition: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'evolution_send',
+    description:
+      'Envia mensagens reais pelo WhatsApp via Evolution com tracking em message_events. Use quando for necessário chamar humano, avisar reunião agendada ou enviar mensagens ativas confirmadas.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        tenant_id: { type: 'string', description: 'Tenant atual. Use default se não houver outro informado.' },
+        recipients: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 10,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              phone: { type: 'string', description: 'Telefone puro do WhatsApp.' },
+              remote_jid: { type: 'string', description: 'JID completo. Grupos usam @g.us.' },
+              name: { type: 'string', description: 'Nome opcional do destinatário.' }
+            }
+          }
+        },
+        messages: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 5,
+          items: { type: 'string' },
+          description: 'Mensagens a enviar. Use quebra de linha em branco dentro da mensagem para separar blocos.'
+        },
+        instance: { type: 'string', description: 'Instância Evolution. Se omitido, usa EVOLUTION_INSTANCE.' },
+        sender_type: {
+          type: 'string',
+          enum: ['bot', 'internal_assistant'],
+          description: 'Use bot para respondedor padrão e internal_assistant para assistente interno.'
+        },
+        audio_requested: { type: 'boolean', description: 'Solicita áudio, ainda sujeito à AudioPolicy.' }
+      },
+      required: ['recipients', 'messages']
     }
   }
 }
@@ -232,6 +278,10 @@ export const platformEditorToolDefinition: ChatCompletionTool = {
 export async function executeRegisteredTool(name: string, args: unknown): Promise<unknown> {
   if (name === 'http_request') {
     return executeHttpRequestTool(args)
+  }
+
+  if (name === 'evolution_send') {
+    return executeEvolutionSendTool(args)
   }
 
   if (name === 'platform_stats') {
