@@ -19,11 +19,11 @@ import { recordTrace } from '../monitoring/trace-recorder'
 import { traceEmitter } from '../observability/trace-emitter'
 import { AutomationDecisionEngine } from '../automation/decision-engine'
 import { MediaProcessor } from '../media/media-processor'
+import { enqueueInboundMessage } from '../queue/inbound-message-queue'
 import { TranscriptIngestor } from '../transcript/ingestor'
 import {
   normalizeEvolutionRawPayload,
   rawEvolutionPayloadSchema,
-  toLegacyEvolutionWebhookPayload,
   type NormalizedWhatsappEvent
 } from '../webhook/evolution-normalizer'
 
@@ -303,8 +303,21 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
       return reply
     }
 
-    const legacyPayload = toLegacyEvolutionWebhookPayload(normalized)
-    return processRawAllowedPayload(legacyPayload, reply, queryEngine, decision.reason)
+    const job = await enqueueInboundMessage({
+      phone: normalized.phone,
+      instanceId: normalized.instanceId,
+      tenantId
+    })
+
+    return reply.code(202).send({
+      success: true,
+      should_reply: false,
+      action: 'queued',
+      reason: decision.reason,
+      job_id: job.id,
+      transcript_event_id: transcript.event.id,
+      message: ''
+    })
   })
 
   app.post('/api/webhook/evolution', async (request, reply) => {
@@ -328,29 +341,6 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
 
 function shouldProcessMedia(processedType: string): boolean {
   return processedType !== 'text' && processedType !== 'unknown'
-}
-
-async function processRawAllowedPayload(
-  payload: EvolutionPayload,
-  reply: WebhookRouteReply,
-  queryEngine: QueryEngine,
-  reason: string
-): Promise<Record<string, unknown> | WebhookRouteReply> {
-  try {
-    const response = await queryEngine.process(payload)
-    return {
-      ...response,
-      should_reply: Boolean(response.message),
-      action: 'reply',
-      reason
-    }
-  } catch (error) {
-    if (error instanceof PhoneLockedError) {
-      return reply.code(429).send({ error: 'Mensagem anterior ainda processando', code: 'PHONE_LOCKED' })
-    }
-
-    throw error
-  }
 }
 
 async function processEvolutionPayload(

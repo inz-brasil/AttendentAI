@@ -24,6 +24,7 @@ import { registerWebhookRoutes } from './routes/webhook'
 import { registerGoogleCalendarMcpServer } from './mcp-servers/google-calendar'
 import { registerMockMcpServer } from './mcp-servers/mock'
 import { traceEmitter } from './observability/trace-emitter'
+import { closeInboundWorker, startInboundWorker } from './queue/inbound-worker'
 import { registerWebSocketServer } from './websocket/server'
 
 const requestStartTimes = new WeakMap<object, number>()
@@ -132,6 +133,7 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
   await registerMockMcpServer(app)
   await registerGoogleCalendarMcpServer(app)
   traceEmitter.startAutoPurge()
+  startInboundWorker()
 
   return app
 }
@@ -152,13 +154,18 @@ async function start(): Promise<void> {
   }
 }
 
-process.on('SIGINT', () => {
+async function shutdown(): Promise<void> {
+  await closeInboundWorker()
   closeDb()
+}
+
+process.on('SIGINT', async () => {
+  await shutdown()
   process.exit(0)
 })
 
-process.on('SIGTERM', () => {
-  closeDb()
+process.on('SIGTERM', async () => {
+  await shutdown()
   process.exit(0)
 })
 

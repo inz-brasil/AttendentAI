@@ -1,5 +1,5 @@
 // repository.ts — Consultas específicas do transcript sobre message_events
-import { and, desc, eq, gte } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull } from 'drizzle-orm'
 import { db } from '../db/client'
 import {
   messageEvents,
@@ -132,5 +132,43 @@ export class TranscriptRepository {
     externalMessageId?: string
   ): Promise<void> {
     await this.baseRepository.updateDeliveryStatus(id, status, externalMessageId)
+  }
+
+  /**
+   * Busca mensagens recebidas ainda sem batch para um telefone.
+   * @param tenantId Tenant isolado.
+   * @param phone Telefone do lead.
+   * @param limit Limite máximo de mensagens.
+   * @returns Eventos pendentes em ordem cronológica.
+   */
+  async findPendingReceivedBatch(tenantId: string, phone: string, limit: number): Promise<MessageEvent[]> {
+    return db
+      .select()
+      .from(messageEvents)
+      .where(and(
+        eq(messageEvents.tenant_id, tenantId),
+        eq(messageEvents.lead_phone, phone),
+        eq(messageEvents.delivery_status, 'received'),
+        isNull(messageEvents.batch_id)
+      ))
+      .orderBy(asc(messageEvents.whatsapp_timestamp), asc(messageEvents.created_at))
+      .limit(limit)
+  }
+
+  /**
+   * Atribui o mesmo batch_id aos eventos selecionados.
+   * @param eventIds Ids internos dos eventos.
+   * @param batchId Id do batch.
+   * @returns Nada.
+   */
+  async assignBatchId(eventIds: string[], batchId: string): Promise<void> {
+    if (eventIds.length === 0) {
+      return
+    }
+
+    await db
+      .update(messageEvents)
+      .set({ batch_id: batchId, updated_at: new Date() })
+      .where(inArray(messageEvents.id, eventIds))
   }
 }

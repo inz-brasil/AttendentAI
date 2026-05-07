@@ -6,6 +6,7 @@ import { messageEvents } from '../db/schema'
 import type { MessageEvent } from '../db/repositories/message-events.repository'
 import { hashContent } from '../db/repositories/message-events.repository'
 import { traceEmitter } from '../observability/trace-emitter'
+import { enqueueInboundMessage } from '../queue/inbound-message-queue'
 import type { NormalizedWhatsappEvent } from '../webhook/evolution-normalizer'
 import { OpenAIWhisperAdapter, type TranscriptionAdapter } from './audio-transcriber'
 import { EvolutionMediaDownloader, type DownloadedMedia, type MediaDownloader } from './downloader'
@@ -71,10 +72,12 @@ export class MediaProcessor {
       const content = await this.resolveContent(input.event)
       await this.updateContent(input.messageEvent.id, content, null)
       await this.emitDone(input, content)
+      await this.enqueueForBatch(input)
       return { processed: true, content }
     } catch (error) {
       await this.updateContent(input.messageEvent.id, input.messageEvent.content, getErrorMessage(error))
       await this.emitFailed(input, error)
+      await this.enqueueForBatch(input)
       return { processed: false, content: input.messageEvent.content }
     }
   }
@@ -151,6 +154,14 @@ export class MediaProcessor {
       media_url: input.event.mediaUrl,
       instance: input.event.instance
     }
+  }
+
+  private async enqueueForBatch(input: MediaProcessorInput): Promise<void> {
+    await enqueueInboundMessage({
+      tenantId: input.tenantId,
+      phone: input.event.phone,
+      instanceId: input.event.instanceId
+    })
   }
 }
 
