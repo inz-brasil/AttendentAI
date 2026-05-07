@@ -146,6 +146,10 @@ export async function upsertSetting(key: string, value: string): Promise<void> {
 
 function toPublicKey(key: string, section: keyof typeof configDefinitions): string {
   if (section === 'evolution') return removePrefix(key, 'evolution_')
+  if (section === 'business') return removePrefix(key, 'business_')
+  if (section === 'tenants') return removePrefix(key, 'tenants_')
+  if (section === 'evolution_instances') return removePrefix(key, 'evolution_instances_')
+  if (section === 'wacli') return removePrefix(key, 'wacli_')
   if (section === 'automation') {
     if (key === 'automation_enabled') return 'enabled'
     return removePrefix(key, 'schedule_')
