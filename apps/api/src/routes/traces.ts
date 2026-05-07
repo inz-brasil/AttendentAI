@@ -1,11 +1,17 @@
-// traces.ts — Expõe rastros de tools e etapas dos agentes para debug
+// traces.ts — Expõe rastros de tools, etapas dos agentes e stream SSE para debug
 import { desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../db/client'
 import { agentTraces } from '../db/schema'
+import { traceEmitter, type TraceEvent } from '../observability/trace-emitter'
 
 const phoneParamsSchema = z.object({ phone: z.string().min(1) })
+const traceStreamQuerySchema = z.object({ tenant_id: z.string().min(1) })
+
+function formatSseEvent(event: TraceEvent): string {
+  return `event: trace\ndata: ${JSON.stringify(event)}\n\n`
+}
 
 /**
  * Registra endpoints de rastreio dos agentes.
@@ -65,6 +71,34 @@ export async function registerTraceRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/traces', async () => {
     const traces = await db.select().from(agentTraces).orderBy(desc(agentTraces.created_at)).limit(100)
     return { traces }
+  })
+
+  app.get('/api/traces/stream', async (request, reply) => {
+    const { tenant_id: tenantId } = traceStreamQuerySchema.parse(request.query)
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    })
+    reply.raw.write(`event: ready\ndata: ${JSON.stringify({ tenant_id: tenantId })}\n\n`)
+
+    const unsubscribe = traceEmitter.subscribe(tenantId, (event) => {
+      reply.raw.write(formatSseEvent(event))
+    })
+    const heartbeat = setInterval(() => {
+      reply.raw.write(': heartbeat\n\n')
+    }, 25_000)
+    heartbeat.unref?.()
+
+    request.raw.on('close', () => {
+      clearInterval(heartbeat)
+      unsubscribe()
+      reply.raw.end()
+    })
+
+    return reply
   })
 
   app.get('/api/traces/:phone/runs', async (request) => {

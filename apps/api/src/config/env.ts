@@ -39,7 +39,8 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().optional(),
-  ANTHROPIC_API_KEY: z.string().optional()
+  ANTHROPIC_API_KEY: z.string().optional(),
+  TRACE_RETENTION_DAYS: z.coerce.number().int().positive().default(7)
 })
 
 function readRawEnv(): Record<keyof z.input<typeof envSchema>, string | undefined> {
@@ -77,7 +78,8 @@ function readRawEnv(): Record<keyof z.input<typeof envSchema>, string | undefine
     GOOGLE_CLIENT_ID: Bun.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: Bun.env.GOOGLE_CLIENT_SECRET,
     GOOGLE_REDIRECT_URI: Bun.env.GOOGLE_REDIRECT_URI,
-    ANTHROPIC_API_KEY: Bun.env.ANTHROPIC_API_KEY
+    ANTHROPIC_API_KEY: Bun.env.ANTHROPIC_API_KEY,
+    TRACE_RETENTION_DAYS: Bun.env.TRACE_RETENTION_DAYS
   }
 }
 

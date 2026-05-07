@@ -23,6 +23,7 @@ import { registerWacliRoutes } from './routes/wacli'
 import { registerWebhookRoutes } from './routes/webhook'
 import { registerGoogleCalendarMcpServer } from './mcp-servers/google-calendar'
 import { registerMockMcpServer } from './mcp-servers/mock'
+import { traceEmitter } from './observability/trace-emitter'
 import { registerWebSocketServer } from './websocket/server'
 
 const requestStartTimes = new WeakMap<object, number>()
@@ -130,6 +131,7 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
   await registerMcpRoutes(app)
   await registerMockMcpServer(app)
   await registerGoogleCalendarMcpServer(app)
+  traceEmitter.startAutoPurge()
 
   return app
 }
