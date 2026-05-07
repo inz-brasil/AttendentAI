@@ -15,6 +15,20 @@
       "when": 1777900000000,
       "tag": "0003_mcp_and_memory",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1778112000000,
+      "tag": "0005_create_message_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1778112060000,
+      "tag": "0006_create_trace_events",
+      "breakpoints": true
     }
   ]
 }

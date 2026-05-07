@@ -1,10 +1,22 @@
 // schema.ts — Define o schema SQLite completo do AttendentAI com Drizzle ORM
 import { sql } from 'drizzle-orm'
-import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export type LeadStatus = 'novo' | 'ativo' | 'lead_quente' | 'convertido' | 'inativo'
-export type MessageRole = 'user' | 'assistant'
+export type MessageRole = 'user' | 'assistant' | 'human_agent' | 'system'
 export type MessageType = 'text' | 'audio' | 'image'
+export type MessageEventSource = 'evolution' | 'wacli' | 'dashboard' | 'internal' | 'n8n_legacy'
+export type MessageEventDirection = 'inbound' | 'outbound'
+export type MessageEventSenderType =
+  | 'customer'
+  | 'bot'
+  | 'human_agent'
+  | 'internal_assistant'
+  | 'system'
+  | 'unknown'
+export type MessageEventProcessedType = 'text' | 'audio' | 'image' | 'video' | 'document' | 'sticker' | 'unknown'
+export type MessageEventDeliveryStatus = 'received' | 'intended' | 'sent' | 'failed' | 'ignored' | 'unknown'
+export type TraceEventStatus = 'ok' | 'error' | 'ignored'
 export type AgentType =
   | 'orchestrator'
   | 'classifier'
@@ -21,6 +33,25 @@ export interface MCPTool {
   name: string
   description?: string
   inputSchema: Record<string, unknown>
+}
+
+const crockfordBase32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+
+function createUlid(): string {
+  const now = Date.now()
+  let timestamp = ''
+  let value = now
+  for (let index = 0; index < 10; index += 1) {
+    timestamp = crockfordBase32[value % 32] + timestamp
+    value = Math.floor(value / 32)
+  }
+
+  let randomness = ''
+  for (let index = 0; index < 16; index += 1) {
+    randomness += crockfordBase32[Math.floor(Math.random() * 32)]
+  }
+
+  return timestamp + randomness
 }
 
 export const leads = sqliteTable('leads', {
@@ -69,6 +100,69 @@ export const messages = sqliteTable('messages', {
   processing_ms: integer('processing_ms'),
   created_at: integer('created_at', { mode: 'timestamp_ms' }).defaultNow()
 })
+
+export const messageEvents = sqliteTable('message_events', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createUlid()),
+  tenant_id: text('tenant_id').notNull(),
+  conversation_id: text('conversation_id').references(() => conversations.id),
+  lead_phone: text('lead_phone').notNull(),
+  external_message_id: text('external_message_id'),
+  source: text('source').$type<MessageEventSource>().notNull(),
+  source_event: text('source_event'),
+  direction: text('direction').$type<MessageEventDirection>().notNull(),
+  from_me: integer('from_me', { mode: 'boolean' }).notNull(),
+  sender_type: text('sender_type').$type<MessageEventSenderType>().notNull(),
+  role: text('role').$type<MessageRole>().notNull(),
+  content: text('content').notNull(),
+  content_hash: text('content_hash').notNull(),
+  message_type: text('message_type').notNull(),
+  processed_type: text('processed_type').$type<MessageEventProcessedType>().notNull(),
+  media_url: text('media_url'),
+  quoted_external_message_id: text('quoted_external_message_id'),
+  quoted_content: text('quoted_content'),
+  remote_jid: text('remote_jid'),
+  instance: text('instance'),
+  instance_id: text('instance_id'),
+  chatwoot_conversation_id: integer('chatwoot_conversation_id'),
+  chatwoot_inbox_id: integer('chatwoot_inbox_id'),
+  chatwoot_message_id: integer('chatwoot_message_id'),
+  delivery_status: text('delivery_status').$type<MessageEventDeliveryStatus>().notNull(),
+  batch_id: text('batch_id'),
+  error_message: text('error_message'),
+  raw_payload: text('raw_payload', { mode: 'json' }).$type<Record<string, unknown>>(),
+  whatsapp_timestamp: integer('whatsapp_timestamp').notNull(),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).defaultNow().notNull(),
+  updated_at: integer('updated_at', { mode: 'timestamp_ms' }).defaultNow().notNull()
+}, (table) => [
+  index('idx_me_tenant_phone_ts').on(table.tenant_id, table.lead_phone, table.whatsapp_timestamp),
+  index('idx_me_tenant_phone_cr').on(table.tenant_id, table.lead_phone, table.created_at),
+  index('idx_me_tenant_ext_id').on(table.tenant_id, table.source, table.external_message_id),
+  index('idx_me_tenant_dedupe').on(table.tenant_id, table.content_hash, table.lead_phone, table.direction),
+  index('idx_me_delivery_status').on(table.tenant_id, table.delivery_status),
+  index('idx_me_instance').on(table.tenant_id, table.instance),
+  index('idx_me_remote_jid').on(table.tenant_id, table.remote_jid),
+  index('idx_me_batch_id').on(table.batch_id)
+])
+
+export const traceEvents = sqliteTable('trace_events', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createUlid()),
+  tenant_id: text('tenant_id').notNull(),
+  batch_id: text('batch_id'),
+  phone: text('phone'),
+  event: text('event').notNull(),
+  status: text('status').$type<TraceEventStatus>().notNull(),
+  data: text('data', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default(sql`'{}'`),
+  duration_ms: integer('duration_ms'),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).defaultNow().notNull()
+}, (table) => [
+  index('idx_te_tenant_event_created').on(table.tenant_id, table.event, table.created_at),
+  index('idx_te_batch_id').on(table.batch_id),
+  index('idx_te_tenant_phone_created').on(table.tenant_id, table.phone, table.created_at)
+])
 
 export const agents = sqliteTable('agents', {
   id: text('id')
@@ -151,6 +245,7 @@ export const mcpCredentials = sqliteTable('mcp_credentials', {
   granted_at: integer('granted_at', { mode: 'timestamp_ms' }),
   updated_at: integer('updated_at', { mode: 'timestamp_ms' }).defaultNow()
 })
+
 
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
