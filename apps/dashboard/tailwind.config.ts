@@ -1,4 +1,4 @@
-// tailwind.config.ts — Design tokens Tailwind do dashboard
+// tailwind.config.ts — Tokens Tailwind ligados às CSS variables do dashboard
 import type { Config } from 'tailwindcss'
 
 const config: Config = {
@@ -6,32 +6,33 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        canvas: '#08090a',
-        panel: '#111315',
-        elevated: '#191c1f',
-        line: '#2a2f35',
-        muted: '#8d97a3',
-        ink: '#f4f7fb',
-        accent: '#f7ff6a',
-        cyan: '#79e2ff',
-        success: '#31d18b',
-        danger: '#ff5f72'
+        canvas: 'var(--bg-primary)',
+        panel: 'var(--bg-secondary)',
+        elevated: 'var(--bg-elevated)',
+        line: 'var(--border)',
+        muted: 'var(--text-secondary)',
+        ink: 'var(--text-primary)',
+        accent: 'var(--accent)',
+        danger: 'var(--danger)',
+        warning: 'var(--warning)',
+        success: 'var(--success)',
+        cyan: '#2b8fbf'
       },
       fontFamily: {
         sans: ['var(--font-sans)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         mono: ['var(--font-mono)', 'ui-monospace', 'SFMono-Regular', 'monospace']
       },
       boxShadow: {
-        panel: '0 0 0 1px rgba(255,255,255,0.08)'
+        panel: 'var(--shadow-panel)'
       },
       keyframes: {
-        'pulse-once': {
-          '0%, 100%': { backgroundColor: 'transparent' },
-          '30%': { backgroundColor: 'rgba(247,255,106,0.10)' }
+        shimmer: {
+          '0%': { backgroundPosition: '120% 0' },
+          '100%': { backgroundPosition: '-120% 0' }
         }
       },
       animation: {
-        'pulse-once': 'pulse-once 2s ease-in-out 1'
+        shimmer: 'shimmer 1.6s ease-in-out infinite'
       }
     }
   },

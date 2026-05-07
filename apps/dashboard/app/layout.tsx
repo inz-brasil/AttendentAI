@@ -1,6 +1,8 @@
 // layout.tsx — Layout raiz e metadados globais do dashboard
 import type { Metadata } from 'next'
+import Script from 'next/script'
 import { ToastProvider } from '../components/ui/toast-provider'
+import { DashboardProviders } from '../components/dashboard-providers'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -15,9 +17,14 @@ export const metadata: Metadata = {
  */
 export default function RootLayout({ children }: { children: React.ReactNode }): JSX.Element {
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" suppressHydrationWarning>
       <body>
-        <ToastProvider>{children}</ToastProvider>
+        <Script id="theme-init" strategy="beforeInteractive">
+          {`document.documentElement.dataset.theme=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'`}
+        </Script>
+        <DashboardProviders>
+          <ToastProvider>{children}</ToastProvider>
+        </DashboardProviders>
       </body>
     </html>
   )

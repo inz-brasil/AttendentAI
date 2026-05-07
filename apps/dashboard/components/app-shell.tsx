@@ -1,155 +1,30 @@
-// app-shell.tsx — Shell principal com sidebar, header e área de conteúdo
+// app-shell.tsx — Shell responsivo com sidebar colapsável, tema, idioma e debug mode
 'use client'
 
 import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import * as Dialog from '@radix-ui/react-dialog'
+import { useTranslation } from 'react-i18next'
+import { languages } from '../lib/i18n'
+import { useUiStore, type LanguageCode, type ThemeMode } from '../lib/ui-store'
 
-type NavIconProps = {
-  className?: string
+interface NavItem {
+  href: string
+  key: string
+  icon: string
+  debugOnly?: boolean
 }
 
-function HomeIcon({ className }: NavIconProps): JSX.Element {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M4 10.5 12 4l8 6.5" />
-      <path d="M6.5 9.5V20h11V9.5" />
-      <path d="M9.5 20v-6h5v6" />
-    </svg>
-  )
-}
-
-function LeadsIcon({ className }: NavIconProps): JSX.Element {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
-      <path d="M2.8 20a5.9 5.9 0 0 1 11.4 0" />
-      <path d="M16.5 10.5a3 3 0 1 0-1.2-5.75" />
-      <path d="M15.5 14.5a5.2 5.2 0 0 1 5.7 4.8" />
-    </svg>
-  )
-}
-
-function ConversationsIcon({ className }: NavIconProps): JSX.Element {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M5 6.5h14v9.2H8.8L5 19.5v-13Z" />
-      <path d="M8 10h8" />
-      <path d="M8 13h5.5" />
-    </svg>
-  )
-}
-
-function AgentsIcon({ className }: NavIconProps): JSX.Element {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <rect x="7" y="7" width="10" height="10" rx="2" />
-      <path d="M10 3.5v3.5M14 3.5v3.5M10 17v3.5M14 17v3.5M3.5 10h3.5M3.5 14h3.5M17 10h3.5M17 14h3.5" />
-      <path d="M10 12h4" />
-    </svg>
-  )
-}
-
-function SkillsIcon({ className }: NavIconProps): JSX.Element {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M12 3.5 13.9 8l4.6 1.9-4.6 1.9L12 16.5 10.1 12 5.5 10.1 10.1 8 12 3.5Z" />
-      <path d="M18 14.5 19 17l2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1 1-2.5Z" />
-    </svg>
-  )
-}
-
-function VaultIcon({ className }: NavIconProps): JSX.Element {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M3.8 7.5h6l1.7 2h8.7v9.2a1.8 1.8 0 0 1-1.8 1.8H5.6a1.8 1.8 0 0 1-1.8-1.8V7.5Z" />
-      <path d="M3.8 7.5V5.3h5.4l1.7 2.2" />
-      <path d="M9 15.5h6" />
-    </svg>
-  )
-}
-
-function PlaygroundIcon({ className }: NavIconProps): JSX.Element {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <rect x="4" y="5" width="16" height="14" rx="2" />
-      <path d="m8 10 2.5 2L8 14" />
-      <path d="M13 14h3.5" />
-    </svg>
-  )
-}
-
-function SettingsIcon({ className }: NavIconProps): JSX.Element {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
-      <path d="M18.7 13.5a7.2 7.2 0 0 0 0-3l2-1.5-2-3.5-2.4 1a7.5 7.5 0 0 0-2.6-1.5L13.4 2h-4l-.3 3a7.5 7.5 0 0 0-2.6 1.5l-2.4-1-2 3.5 2 1.5a7.2 7.2 0 0 0 0 3l-2 1.5 2 3.5 2.4-1a7.5 7.5 0 0 0 2.6 1.5l.3 3h4l.3-3a7.5 7.5 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5Z" />
-    </svg>
-  )
-}
-
-function TracesIcon({ className }: NavIconProps): JSX.Element {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M4 5.5h5.5" />
-      <path d="M4 12h8" />
-      <path d="M4 18.5h5.5" />
-      <path d="M15 5.5h5" />
-      <path d="M17.5 5.5v13" />
-      <path d="M15 18.5h5" />
-      <path d="M12 12h6" />
-      <circle cx="10.5" cy="5.5" r="1.4" />
-      <circle cx="13.5" cy="12" r="1.4" />
-      <circle cx="10.5" cy="18.5" r="1.4" />
-    </svg>
-  )
-}
-
-function McpIcon({ className }: NavIconProps): JSX.Element {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M7 8a4 4 0 0 1 8 0v1" />
-      <path d="M17 16a4 4 0 0 1-8 0v-1" />
-      <path d="M8 12h8" />
-      <path d="M5 12H3" />
-      <path d="M21 12h-2" />
-      <circle cx="7" cy="8" r="1.5" />
-      <circle cx="17" cy="16" r="1.5" />
-    </svg>
-  )
-}
-
-function MenuIcon({ className }: NavIconProps): JSX.Element {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M4 7h16" />
-      <path d="M4 12h16" />
-      <path d="M4 17h16" />
-    </svg>
-  )
-}
-
-function CloseIcon({ className }: NavIconProps): JSX.Element {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="m6 6 12 12" />
-      <path d="M18 6 6 18" />
-    </svg>
-  )
-}
-
-const navItems = [
-  { href: '/', label: 'Home', icon: HomeIcon },
-  { href: '/leads', label: 'Leads', icon: LeadsIcon },
-  { href: '/conversations', label: 'Conversas', icon: ConversationsIcon },
-  { href: '/agents', label: 'Agentes', icon: AgentsIcon },
-  { href: '/skills', label: 'Skills', icon: SkillsIcon },
-  { href: '/vault', label: 'Vault', icon: VaultIcon },
-  { href: '/traces', label: 'Logs', icon: TracesIcon },
-  { href: '/mcp', label: 'MCP', icon: McpIcon },
-  { href: '/playground', label: 'Playground', icon: PlaygroundIcon },
-  { href: '/settings', label: 'Settings', icon: SettingsIcon }
+const navItems: NavItem[] = [
+  { href: '/', key: 'home', icon: '🏠' },
+  { href: '/assistant', key: 'assistant', icon: '💬' },
+  { href: '/leads', key: 'clients', icon: '👥' },
+  { href: '/agents', key: 'agents', icon: '🤖' },
+  { href: '/skills', key: 'knowledge', icon: '📚' },
+  { href: '/traces', key: 'analytics', icon: '📊' },
+  { href: '/settings', key: 'settings', icon: '⚙️' },
+  { href: '/debug', key: 'debug', icon: '🐛', debugOnly: true }
 ]
 
 function isActivePath(pathname: string, href: string): boolean {
@@ -157,60 +32,125 @@ function isActivePath(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-function NavigationItems({ onNavigate }: { onNavigate?: () => void }): JSX.Element {
-  const pathname = usePathname()
-
+function MenuGlyph(): JSX.Element {
   return (
-    <>
-      {navItems.map((item) => {
-        const Icon = item.icon
-        const active = isActivePath(pathname, item.href)
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            aria-current={active ? 'page' : undefined}
-            className={[
-              'focus-ring group flex h-11 items-center gap-3 rounded-md px-3 text-sm transition',
-              active ? 'bg-elevated text-ink' : 'text-muted hover:bg-elevated hover:text-ink'
-            ].join(' ')}
-          >
-            <span className={[
-              'grid h-8 w-8 shrink-0 place-items-center rounded bg-canvas shadow-panel transition',
-              active ? 'text-accent' : 'text-cyan group-hover:text-accent'
-            ].join(' ')}
-            >
-              <Icon className="h-4 w-4" />
-            </span>
-            <span>{item.label}</span>
-          </Link>
-        )
-      })}
-    </>
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  )
+}
+
+function CloseGlyph(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="m6 6 12 12M18 6 6 18" />
+    </svg>
   )
 }
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }): JSX.Element {
-  return (
-    <>
-      <Link href="/" onClick={onNavigate} className="focus-ring block rounded-md px-2 py-1">
-        <div className="font-mono text-xs uppercase tracking-[0.22em] text-accent">AttendentAI</div>
-        <div className="mt-2 text-xl font-semibold tracking-tight">Operations Console</div>
-      </Link>
+  const { t } = useTranslation()
+  const pathname = usePathname()
+  const debugMode = useUiStore((state) => state.debugMode)
+  const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed)
+  const setDebugMode = useUiStore((state) => state.setDebugMode)
+  const setSidebarCollapsed = useUiStore((state) => state.setSidebarCollapsed)
+  const visibleItems = navItems.filter((item) => debugMode || !item.debugOnly)
 
-      <nav className="mt-8 space-y-1" aria-label="Navegação principal">
-        <NavigationItems onNavigate={onNavigate} />
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between gap-3 px-2">
+        <Link href="/" onClick={onNavigate} className="focus-ring min-w-0 rounded-lg py-1">
+          <div className="truncate text-sm font-semibold text-ink">{t('app.name')}</div>
+          {!sidebarCollapsed && <div className="mt-0.5 truncate text-xs text-muted">{t('app.tagline')}</div>}
+        </Link>
+        <button
+          type="button"
+          className="focus-ring hidden h-11 w-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-elevated hover:text-ink lg:grid"
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          aria-label={sidebarCollapsed ? t('shell.expand') : t('shell.collapse')}
+        >
+          {sidebarCollapsed ? '›' : '‹'}
+        </button>
+      </div>
+
+      <nav className="mt-6 space-y-1" aria-label={t('app.platform')}>
+        {visibleItems.map((item) => {
+          const active = isActivePath(pathname, item.href)
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={onNavigate}
+              aria-current={active ? 'page' : undefined}
+              className={[
+                'focus-ring group flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm transition',
+                active ? 'bg-elevated text-ink shadow-panel' : 'text-muted hover:bg-elevated hover:text-ink',
+                sidebarCollapsed ? 'justify-center' : ''
+              ].join(' ')}
+            >
+              <span className="grid h-8 w-8 shrink-0 place-items-center text-base" aria-hidden="true">{item.icon}</span>
+              {!sidebarCollapsed && <span className="truncate">{t(`nav.${item.key}`)}</span>}
+            </Link>
+          )
+        })}
       </nav>
 
-      <div className="mt-8 rounded-lg bg-canvas p-4 shadow-panel lg:absolute lg:bottom-5 lg:left-4 lg:right-4 lg:mt-0">
-        <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Status</div>
-        <div className="mt-3 flex items-center justify-between text-sm">
-          <span className="text-ink">Core API</span>
-          <span className="rounded-full bg-success/15 px-2 py-1 font-mono text-xs text-success">ready</span>
-        </div>
+      <div className="mt-auto space-y-3 px-1 pb-2">
+        <label className={[
+          'flex min-h-11 items-center gap-3 rounded-xl border border-line bg-panel px-3 text-sm text-ink shadow-panel',
+          sidebarCollapsed ? 'justify-center' : 'justify-between'
+        ].join(' ')}
+        >
+          {!sidebarCollapsed && <span>{t('shell.debugMode')}</span>}
+          <input
+            type="checkbox"
+            checked={debugMode}
+            onChange={(event) => setDebugMode(event.target.checked)}
+            className="h-5 w-5 accent-[var(--accent)]"
+          />
+        </label>
       </div>
-    </>
+    </div>
+  )
+}
+
+function HeaderControls(): JSX.Element {
+  const { t, i18n } = useTranslation()
+  const theme = useUiStore((state) => state.theme)
+  const language = useUiStore((state) => state.language)
+  const setTheme = useUiStore((state) => state.setTheme)
+  const setLanguage = useUiStore((state) => state.setLanguage)
+
+  function toggleTheme(): void {
+    setTheme((theme === 'dark' ? 'light' : 'dark') as ThemeMode)
+  }
+
+  function changeLanguage(value: string): void {
+    const nextLanguage = value as LanguageCode
+    setLanguage(nextLanguage)
+    void i18n.changeLanguage(nextLanguage)
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        value={language}
+        onChange={(event) => changeLanguage(event.target.value)}
+        aria-label={t('common.language')}
+        className="focus-ring h-11 rounded-xl border border-line bg-panel px-3 text-sm text-ink shadow-panel"
+      >
+        {languages.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
+      </select>
+      <button
+        type="button"
+        onClick={toggleTheme}
+        className="focus-ring grid h-11 w-11 place-items-center rounded-xl border border-line bg-panel text-lg shadow-panel"
+        aria-label={t('common.theme')}
+      >
+        {theme === 'dark' ? '☀️' : '🌙'}
+      </button>
+    </div>
   )
 }
 
@@ -220,31 +160,38 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }): JSX.Elemen
  * @returns Shell visual do dashboard.
  */
 export function AppShell({ children }: { children: ReactNode }): JSX.Element {
+  const { t } = useTranslation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed)
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-72 border-r border-line bg-panel/95 px-4 py-5 lg:block">
+      <aside
+        className={[
+          'fixed inset-y-0 left-0 z-20 hidden border-r border-line bg-panel/95 px-3 py-4 shadow-panel backdrop-blur lg:block',
+          sidebarCollapsed ? 'w-20' : 'w-72'
+        ].join(' ')}
+      >
         <SidebarContent />
       </aside>
 
-      <div className="lg:pl-72">
-        <header className="sticky top-0 z-10 border-b border-line bg-canvas/90 backdrop-blur">
-          <div className="flex h-16 items-center justify-between gap-3 px-4 sm:px-5 lg:px-8">
+      <div className={sidebarCollapsed ? 'lg:pl-20' : 'lg:pl-72'}>
+        <header className="sticky top-0 z-10 border-b border-line bg-canvas/88 backdrop-blur">
+          <div className="flex min-h-16 items-center justify-between gap-3 px-4 sm:px-5 lg:px-8">
             <div className="flex min-w-0 items-center gap-3">
               <Dialog.Root open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
                 <Dialog.Trigger asChild>
                   <button
                     type="button"
-                    className="focus-ring grid h-10 w-10 shrink-0 place-items-center rounded-md border border-line bg-panel text-cyan shadow-panel transition hover:border-cyan hover:text-accent lg:hidden"
-                    aria-label="Abrir menu"
+                    className="focus-ring grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line bg-panel text-ink shadow-panel lg:hidden"
+                    aria-label={t('shell.openMenu')}
                   >
-                    <MenuIcon className="h-5 w-5" />
+                    <MenuGlyph />
                   </button>
                 </Dialog.Trigger>
                 <Dialog.Portal>
-                  <Dialog.Overlay className="fixed inset-0 z-40 bg-canvas/75 backdrop-blur-sm lg:hidden" />
-                  <Dialog.Content className="fixed inset-y-0 left-0 z-50 flex w-[min(20rem,88vw)] flex-col border-r border-line bg-panel px-4 py-5 shadow-2xl outline-none lg:hidden">
+                  <Dialog.Overlay className="fixed inset-0 z-40 bg-canvas/70 backdrop-blur-sm lg:hidden" />
+                  <Dialog.Content className="fixed inset-y-0 left-0 z-50 flex w-[min(22rem,92vw)] flex-col border-r border-line bg-panel px-3 py-4 shadow-2xl outline-none lg:hidden">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <SidebarContent onNavigate={() => setMobileMenuOpen(false)} />
@@ -252,26 +199,28 @@ export function AppShell({ children }: { children: ReactNode }): JSX.Element {
                       <Dialog.Close asChild>
                         <button
                           type="button"
-                          className="focus-ring grid h-9 w-9 shrink-0 place-items-center rounded-md border border-line bg-canvas text-muted transition hover:text-ink"
-                          aria-label="Fechar menu"
+                          className="focus-ring grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line bg-canvas text-muted"
+                          aria-label={t('shell.closeMenu')}
                         >
-                          <CloseIcon className="h-4 w-4" />
+                          <CloseGlyph />
                         </button>
                       </Dialog.Close>
                     </div>
                   </Dialog.Content>
                 </Dialog.Portal>
               </Dialog.Root>
-
               <div className="min-w-0">
-              <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">WhatsApp Agent Platform</div>
-                <h1 className="truncate text-lg font-semibold tracking-tight">AttendentAI</h1>
+                <div className="truncate text-xs text-muted">{t('app.platform')}</div>
+                <h1 className="truncate text-base font-semibold tracking-tight sm:text-lg">{t('app.name')}</h1>
               </div>
             </div>
+            <HeaderControls />
           </div>
         </header>
 
-        <main className="mx-auto min-h-[calc(100vh-4rem)] max-w-7xl overflow-x-hidden px-4 py-5 sm:px-5 lg:px-8 lg:py-6">{children}</main>
+        <main className="mx-auto min-h-[calc(100vh-4rem)] max-w-7xl overflow-x-hidden px-4 py-5 sm:px-5 lg:px-8 lg:py-6">
+          {children}
+        </main>
       </div>
     </div>
   )

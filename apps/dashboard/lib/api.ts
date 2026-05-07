@@ -183,6 +183,48 @@ export interface WacliStatus {
   error: string | null
 }
 
+export interface ConfigResponse {
+  section: string
+  config: Record<string, unknown>
+}
+
+export interface BlacklistEntry {
+  phone: string
+  reason: string | null
+  expires_at: string | null
+  created_at: string | null
+}
+
+export interface QueueStatus {
+  counts: Record<string, number>
+  jobs: Record<string, Array<Record<string, unknown>>>
+}
+
+export interface MessageEventRow {
+  id: string
+  tenant_id: string
+  lead_phone: string
+  direction: 'inbound' | 'outbound'
+  sender_type: string
+  role: 'user' | 'assistant' | 'human_agent' | 'system'
+  content: string
+  delivery_status: string
+  whatsapp_timestamp: number
+  created_at: string
+}
+
+export interface TraceEventRow {
+  id: string
+  tenant_id: string
+  batch_id: string | null
+  phone: string | null
+  event: string
+  status: 'ok' | 'error' | 'ignored'
+  data: Record<string, unknown>
+  duration_ms: number | null
+  created_at: string
+}
+
 export interface WacliProcessStatus {
   running: boolean
   output: string
@@ -290,4 +332,28 @@ export const api = {
   stopWacliSync: () => request<{ success: boolean }>('/api/wacli/sync/stop', { method: 'POST' }),
   enableWacli: () => request<{ success: boolean }>('/api/wacli/enable', { method: 'POST' }),
   disableWacli: () => request<{ success: boolean }>('/api/wacli/disable', { method: 'POST' })
+  ,
+  configSection: (section: string) => request<ConfigResponse>(`/api/config/${encodeURIComponent(section)}`),
+  updateConfigSection: (section: string, data: Record<string, unknown>) =>
+    request<ConfigResponse>(`/api/config/${encodeURIComponent(section)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    }),
+  blacklist: (tenantId = 'default') => request<{ items: BlacklistEntry[] }>(`/api/blacklist?tenant_id=${encodeURIComponent(tenantId)}`),
+  addBlacklist: (data: { tenant_id?: string; phone: string; reason?: string; duration_minutes?: number | null }) =>
+    request<{ success: boolean; item: BlacklistEntry }>('/api/blacklist', { method: 'POST', body: JSON.stringify(data) }),
+  removeBlacklist: (phone: string) =>
+    request<{ success: boolean }>(`/api/blacklist/${encodeURIComponent(phone)}`, { method: 'DELETE' }),
+  leadTranscript: (phone: string, tenantId = 'default', limit = 50) =>
+    request<{ messages: MessageEventRow[] }>(
+      `/api/leads/${encodeURIComponent(phone)}/transcript?tenant_id=${encodeURIComponent(tenantId)}&limit=${limit}`
+    ),
+  leadVault: (phone: string) => request<{ phone: string; vault: unknown }>(`/api/leads/${encodeURIComponent(phone)}/vault`),
+  traceTimeline: (batchId: string, tenantId = 'default') =>
+    request<{ traces: TraceEventRow[] }>(`/api/traces?batch_id=${encodeURIComponent(batchId)}&tenant_id=${encodeURIComponent(tenantId)}`),
+  queueStatus: () => request<QueueStatus>('/api/queue/status'),
+  testEvolutionSend: (data: { number: string; text: string; instance?: string }) =>
+    request<Record<string, unknown>>('/api/test/evolution/send', { method: 'POST', body: JSON.stringify(data) }),
+  testEvolutionMedia: (data: { message_id: string; instance?: string }) =>
+    request<Record<string, unknown>>('/api/test/evolution/media', { method: 'POST', body: JSON.stringify(data) })
 }

@@ -1,892 +1,206 @@
+// settings-client.tsx — Configurações editáveis em tempo real, blacklist e testes operacionais
 'use client'
-// settings-client.tsx — Formulário de configurações globais do AttendentAI
-import * as Dialog from '@radix-ui/react-dialog'
-import { useState, useCallback, useEffect } from 'react'
-import { useToast } from '../../../components/ui/toast-provider'
-import { ConfirmDialog } from '../../../components/ui/confirm-dialog'
-import { logoutAction } from '../../actions'
-import type { CalendarStatus, GoogleCalendarOption, Setting, WacliProcessStatus, WacliStatus } from '../../../lib/api'
 
-const API_BASE = '/api/backend'
+import { useMemo, useState } from 'react'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import type { CalendarStatus, Setting } from '../../../lib/api'
+import { api } from '../../../lib/api'
 
-const MODELS = ['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo', 'gpt-4-turbo']
-const TONES = [
-  { value: 'formal', label: 'Formal' },
-  { value: 'amigavel', label: 'Amigável' },
-  { value: 'casual', label: 'Casual' },
-  { value: 'humanizado, claro, breve e consultivo', label: 'Consultivo (padrão)' }
-]
-const TIMEZONES = [
-  'America/Sao_Paulo',
-  'America/Manaus',
-  'America/Belem',
-  'America/Fortaleza',
-  'America/Recife',
-  'America/Noronha',
-  'UTC'
-]
-const DEFAULT_EVENT_DESCRIPTION_TEMPLATE = [
-  'Nome: {lead_name}',
-  'WhatsApp: {lead_phone}',
-  'Serviço de interesse: {service_interest}',
-  'Motivo da reunião: {meeting_reason}',
-  'Observações: {notes}'
-].join('\n')
+const sections = ['evolution', 'automation', 'queue', 'audio', 'reactions', 'presence'] as const
+
+type SectionName = typeof sections[number]
 
 interface SettingsClientProps {
   initialSettings: Setting[]
   initialCalendarStatus: CalendarStatus
 }
 
-/** Resolve a URL pública da API para integrações externas. */
-function resolvePublicApiUrl(): string {
-  const configured = process.env.NEXT_PUBLIC_API_URL?.trim()
-  if (configured) {
-    return configured.replace(/\/$/, '')
-  }
-
-  if (typeof window === 'undefined') {
-    return 'https://seu-dominio'
-  }
-
-  const url = new URL(window.location.href)
-  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
-    url.port = '3001'
-    return url.origin
-  }
-
-  // EasyPanel gera hosts por serviço. Quando o env público não vem no bundle,
-  // inferimos a API a partir do host do dashboard para não mostrar uma URL inútil.
-  url.hostname = url.hostname
-    .replace(/^attendentai-/, 'attendentai-api-')
-    .replace('attendentai-dashboard', 'attendentai-api')
-
-  return url.origin
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
 }
 
-/** Converte array de settings em mapa chave→valor */
-function toMap(settings: Setting[]): Record<string, string> {
-  return Object.fromEntries(settings.map(s => [s.key, s.value ?? '']))
+function parseValue(value: string): string | boolean | number {
+  if (value === 'true') return true
+  if (value === 'false') return false
+  if (/^\d+(\.\d+)?$/.test(value)) return Number(value)
+  return value
 }
 
 /**
- * Página de configurações globais com 4 seções: API, Atendente, Webhook, Sistema.
- * @param props Settings iniciais da API.
- * @returns Formulário de configurações.
+ * Tela de configurações com salvamento sem restart.
+ * @param props Dados legados mantidos para compatibilidade da página.
+ * @returns UI de configuração.
  */
-export function SettingsClient({ initialSettings, initialCalendarStatus }: SettingsClientProps): JSX.Element {
-  const { toast } = useToast()
-  const [values, setValues] = useState<Record<string, string>>(toMap(initialSettings ?? []))
-  const [calendarStatus, setCalendarStatus] = useState(initialCalendarStatus)
-  const [calendarOptions, setCalendarOptions] = useState<GoogleCalendarOption[]>([])
-  const [wacliStatus, setWacliStatus] = useState<WacliStatus | null>(null)
-  const [wacliAuthOutput, setWacliAuthOutput] = useState<WacliProcessStatus | null>(null)
-  const [wacliSyncOutput, setWacliSyncOutput] = useState<WacliProcessStatus | null>(null)
-  const [loadingCalendars, setLoadingCalendars] = useState(false)
-  const [loadingWacli, setLoadingWacli] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const [testingCalendar, setTestingCalendar] = useState(false)
-  const [confirmDisconnectCalendar, setConfirmDisconnectCalendar] = useState(false)
-  const [testResult, setTestResult] = useState<'idle' | 'ok' | 'fail'>('idle')
-  const [showApiKey, setShowApiKey] = useState(false)
-  const [showWebhookSecret, setShowWebhookSecret] = useState(false)
-  const [confirmClearHistory, setConfirmClearHistory] = useState(false)
-  const [clearConfirmStep, setClearConfirmStep] = useState(0)
-  const [showWacliQrDialog, setShowWacliQrDialog] = useState(false)
+export function SettingsClient(_props: SettingsClientProps): JSX.Element {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [selectedSection, setSelectedSection] = useState<SectionName>('evolution')
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  const [blacklistPhone, setBlacklistPhone] = useState('')
+  const [testNumber, setTestNumber] = useState('')
+  const [testText, setTestText] = useState('')
 
-  const set = useCallback((key: string, value: string) => {
-    setValues(prev => ({ ...prev, [key]: value }))
-  }, [])
+  const configQueries = useQueries({
+    queries: sections.map((section) => ({
+      queryKey: ['config', section],
+      queryFn: () => api.configSection(section)
+    }))
+  })
+  const blacklistQuery = useQuery({
+    queryKey: ['blacklist'],
+    queryFn: () => api.blacklist()
+  })
+  const wacliQuery = useQuery({
+    queryKey: ['wacli', 'status'],
+    queryFn: api.getWacliStatus,
+    retry: false
+  })
 
-  useEffect(() => {
-    if (!calendarStatus.connected) return
-    void loadCalendarOptions()
-  }, [calendarStatus.connected])
+  const activeConfig = useMemo(() => {
+    const index = sections.indexOf(selectedSection)
+    return configQueries[index]?.data?.config ?? {}
+  }, [configQueries, selectedSection])
 
-  useEffect(() => {
-    void refreshWacliStatus()
-  }, [])
-
-  useEffect(() => {
-    if (!wacliAuthOutput?.running) return
-    const timer = window.setInterval(() => {
-      void refreshWacliAuthOutput()
-      void refreshWacliStatus()
-    }, 2000)
-    return () => window.clearInterval(timer)
-  }, [wacliAuthOutput?.running])
-
-  useEffect(() => {
-    if (!wacliSyncOutput?.running) return
-    const timer = window.setInterval(() => {
-      void refreshWacliSyncOutput()
-      void refreshWacliStatus()
-    }, 5000)
-    return () => window.clearInterval(timer)
-  }, [wacliSyncOutput?.running])
-
-  async function saveAll() {
-    setSaving(true)
-    try {
-      const items = Object.entries(values).map(([key, value]) => ({ key, value }))
-      const res = await fetch(`${API_BASE}/api/settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(items)
-      })
-      if (!res.ok) throw new Error()
-      const refreshed = await fetch(`${API_BASE}/api/settings`, { cache: 'no-store' })
-      if (!refreshed.ok) throw new Error()
-      const savedSettings = await refreshed.json() as Setting[]
-      setValues(toMap(savedSettings))
-      toast({ title: 'Configurações salvas', variant: 'success' })
-    } catch {
-      toast({ title: 'Erro ao salvar configurações', variant: 'danger' })
-    } finally {
-      setSaving(false)
+  const mutation = useMutation({
+    mutationFn: (payload: { section: SectionName; data: Record<string, unknown> }) =>
+      api.updateConfigSection(payload.section, payload.data),
+    onSuccess: async (_, variables) => {
+      setDraft({})
+      await queryClient.invalidateQueries({ queryKey: ['config', variables.section] })
     }
-  }
-
-  async function testConnection() {
-    setTesting(true)
-    setTestResult('idle')
-    try {
-      const res = await fetch(`${API_BASE}/api/playground/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: 'ping',
-          phone: 'playground_settings_test',
-          agentId: 'responder',
-          history: []
-        })
-      })
-      setTestResult(res.ok ? 'ok' : 'fail')
-      toast({
-        title: res.ok ? '✓ Conexão OK com a API OpenAI' : '✗ Falha na conexão — verifique a API key',
-        variant: res.ok ? 'success' : 'danger'
-      })
-    } catch {
-      setTestResult('fail')
-      toast({ title: '✗ API inacessível', variant: 'danger' })
-    } finally {
-      setTesting(false)
+  })
+  const addBlacklistMutation = useMutation({
+    mutationFn: () => api.addBlacklist({ phone: blacklistPhone, reason: 'manual_admin', duration_minutes: null }),
+    onSuccess: async () => {
+      setBlacklistPhone('')
+      await queryClient.invalidateQueries({ queryKey: ['blacklist'] })
     }
+  })
+  const removeBlacklistMutation = useMutation({
+    mutationFn: (phone: string) => api.removeBlacklist(phone),
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['blacklist'] })
+  })
+  const testSendMutation = useMutation({
+    mutationFn: () => api.testEvolutionSend({ number: testNumber, text: testText })
+  })
+
+  function saveSection(): void {
+    const data = Object.fromEntries(Object.entries(draft).map(([key, value]) => [key, parseValue(value)]))
+    mutation.mutate({ section: selectedSection, data })
   }
-
-  async function clearAllHistory() {
-    try {
-      const response = await fetch(`${API_BASE}/api/conversations`, { method: 'DELETE' })
-      if (!response.ok) {
-        throw new Error('Falha ao apagar histórico')
-      }
-      toast({ title: 'Histórico apagado com sucesso', variant: 'success' })
-    } catch {
-      toast({ title: 'Erro ao apagar histórico', variant: 'danger' })
-    } finally {
-      setConfirmClearHistory(false)
-      setClearConfirmStep(0)
-    }
-  }
-
-  async function refreshCalendarStatus(): Promise<void> {
-    const response = await fetch(`${API_BASE}/api/mcp/google-calendar/status`, { cache: 'no-store' })
-    if (!response.ok) throw new Error('Falha ao atualizar status do Calendar')
-    setCalendarStatus(await response.json() as CalendarStatus)
-  }
-
-  async function loadCalendarOptions(): Promise<void> {
-    setLoadingCalendars(true)
-    try {
-      const response = await fetch(`${API_BASE}/api/mcp/google-calendar/calendars`, { cache: 'no-store' })
-      if (!response.ok) throw new Error('Falha ao carregar agendas')
-      const body = await response.json() as { calendars: GoogleCalendarOption[]; selected_calendar_id: string }
-      setCalendarOptions(body.calendars)
-      setValues(prev => ({
-        ...prev,
-        google_calendar_id: prev.google_calendar_id || body.selected_calendar_id,
-        google_calendar_event_description_template:
-          prev.google_calendar_event_description_template ||
-          calendarStatus.event_description_template ||
-          DEFAULT_EVENT_DESCRIPTION_TEMPLATE
-      }))
-    } catch {
-      toast({ title: 'Erro ao carregar agendas do Google Calendar', variant: 'danger' })
-    } finally {
-      setLoadingCalendars(false)
-    }
-  }
-
-  async function testCalendarConnection(): Promise<void> {
-    setTestingCalendar(true)
-    try {
-      const response = await fetch(`${API_BASE}/mcp/google-calendar/tools`, { cache: 'no-store' })
-      if (!response.ok) throw new Error('Falha ao testar Google Calendar')
-      const body = await response.json() as { tools?: unknown[] }
-      toast({ title: `${body.tools?.length ?? 0} tools do Calendar disponíveis`, variant: 'success' })
-      await refreshCalendarStatus()
-    } catch {
-      toast({ title: 'Erro ao testar Google Calendar', variant: 'danger' })
-    } finally {
-      setTestingCalendar(false)
-    }
-  }
-
-  async function disconnectCalendar(): Promise<void> {
-    if (!calendarStatus.credential?.id) return
-    try {
-      const response = await fetch(`${API_BASE}/api/mcp/credentials/${encodeURIComponent(calendarStatus.credential.id)}`, {
-        method: 'DELETE'
-      })
-      if (!response.ok) throw new Error('Falha ao desconectar Calendar')
-      await refreshCalendarStatus()
-      toast({ title: 'Google Calendar desconectado', variant: 'success' })
-    } catch {
-      toast({ title: 'Erro ao desconectar Google Calendar', variant: 'danger' })
-    } finally {
-      setConfirmDisconnectCalendar(false)
-    }
-  }
-
-  async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const headers: HeadersInit = init.body
-      ? { 'Content-Type': 'application/json', ...init.headers }
-      : { ...init.headers }
-
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...init,
-      headers,
-      cache: 'no-store'
-    })
-    if (!response.ok) throw new Error('Falha na API')
-    return await response.json() as T
-  }
-
-  async function refreshWacliStatus(): Promise<void> {
-    try {
-      setWacliStatus(await requestJson<WacliStatus>('/api/wacli/status'))
-    } catch {
-      toast({ title: 'Erro ao carregar status do WhatsApp CLI', variant: 'danger' })
-    }
-  }
-
-  async function refreshWacliAuthOutput(): Promise<void> {
-    setWacliAuthOutput(await requestJson<WacliProcessStatus>('/api/wacli/auth/output'))
-  }
-
-  async function refreshWacliSyncOutput(): Promise<void> {
-    setWacliSyncOutput(await requestJson<WacliProcessStatus>('/api/wacli/sync/output'))
-  }
-
-  async function startWacliAuth(): Promise<void> {
-    setLoadingWacli(true)
-    try {
-      const body = await requestJson<{ status: WacliProcessStatus }>('/api/wacli/auth/start', { method: 'POST' })
-      setWacliAuthOutput(body.status)
-      setShowWacliQrDialog(true)
-      toast({ title: 'QR do WhatsApp iniciado', variant: 'success' })
-    } catch {
-      toast({ title: 'Erro ao iniciar QR do WhatsApp', variant: 'danger' })
-    } finally {
-      setLoadingWacli(false)
-    }
-  }
-
-  async function stopWacliAuth(): Promise<void> {
-    await requestJson<{ success: boolean }>('/api/wacli/auth/stop', { method: 'POST' })
-    await refreshWacliAuthOutput()
-    await refreshWacliStatus()
-  }
-
-  async function startWacliSync(): Promise<void> {
-    setLoadingWacli(true)
-    try {
-      const body = await requestJson<{ status: WacliProcessStatus }>('/api/wacli/sync/start', { method: 'POST' })
-      setWacliSyncOutput(body.status)
-      toast({ title: 'Sincronização contínua iniciada', variant: 'success' })
-    } catch {
-      toast({ title: 'Erro ao iniciar sincronização WhatsApp', variant: 'danger' })
-    } finally {
-      setLoadingWacli(false)
-    }
-  }
-
-  async function stopWacliSync(): Promise<void> {
-    await requestJson<{ success: boolean }>('/api/wacli/sync/stop', { method: 'POST' })
-    await refreshWacliSyncOutput()
-    await refreshWacliStatus()
-  }
-
-  async function toggleWacliTool(enabled: boolean): Promise<void> {
-    try {
-      await requestJson<{ success: boolean }>(enabled ? '/api/wacli/enable' : '/api/wacli/disable', { method: 'POST' })
-      set('wacli_enabled', String(enabled))
-      await refreshWacliStatus()
-      toast({ title: enabled ? 'Tool wacli habilitada' : 'Tool wacli desabilitada', variant: 'success' })
-    } catch {
-      toast({ title: 'Erro ao alterar tool wacli', variant: 'danger' })
-    }
-  }
-
-  /** Mascaramento de valor sensível */
-  function mask(value: string, show: boolean): string {
-    if (!value) return ''
-    if (show) return value
-    const last4 = value.slice(-4)
-    return `${'•'.repeat(Math.max(0, value.length - 4))}${last4}`
-  }
-
-  const webhookUrl = `${resolvePublicApiUrl()}/api/webhook?sync=true`
-  const calendarConnectedAt = calendarStatus.credential?.granted_at
-    ? new Intl.DateTimeFormat('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      }).format(new Date(calendarStatus.credential.granted_at))
-    : null
-  const wacliDoctorData = wacliStatus?.doctor?.data
-  const wacliAuthenticated = Boolean(wacliDoctorData?.authenticated)
-  const wacliConnected = Boolean(wacliDoctorData?.connected)
 
   return (
-    <div className="space-y-8 max-w-3xl">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="font-mono text-xs uppercase tracking-[0.22em] text-accent">Sistema</div>
-          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-ink">Configurações</h2>
-          <p className="mt-1.5 text-sm text-muted">Configurações globais salvas na tabela settings do banco</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <form action={logoutAction}>
-            <button className="focus-ring h-9 rounded-md border border-line bg-elevated px-4 text-sm text-muted transition hover:text-ink">
-              Logout
+    <div className="space-y-6">
+      <section>
+        <div className="text-xs font-medium uppercase tracking-[0.18em] text-accent">{t('settings.eyebrow')}</div>
+        <h2 className="mt-2 text-3xl font-semibold">{t('settings.title')}</h2>
+        <p className="mt-2 text-sm text-muted">{t('settings.subtitle')}</p>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <aside className="surface rounded-2xl p-3">
+          {sections.map((section) => (
+            <button
+              key={section}
+              type="button"
+              onClick={() => {
+                setSelectedSection(section)
+                setDraft({})
+              }}
+              className={[
+                'focus-ring mb-1 flex min-h-11 w-full items-center rounded-xl px-3 text-left text-sm',
+                selectedSection === section ? 'bg-elevated text-ink' : 'text-muted hover:bg-elevated hover:text-ink'
+              ].join(' ')}
+            >
+              {t(`settings.${section}`)}
             </button>
-          </form>
-          <button onClick={saveAll} disabled={saving} className="save-btn whitespace-nowrap text-xs sm:text-sm">
-            {saving ? 'Salvando…' : 'Salvar tudo'}
-          </button>
-        </div>
-      </div>
+          ))}
+        </aside>
 
-      {/* SEÇÃO: Integrações */}
-      <Section title="Integrações" description="Conexões externas usadas pelas ferramentas MCP">
-        <div className="rounded-lg border border-line bg-canvas p-4">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className={calendarStatus.connected ? 'text-success' : 'text-muted'}>
-                  {calendarStatus.connected ? '●' : '○'}
-                </span>
-                <h4 className="font-semibold text-ink">Google Calendar</h4>
-              </div>
-              {calendarStatus.connected ? (
-                <div className="mt-2 space-y-1 text-xs text-muted">
-                  <p>Conta: {calendarStatus.account_email ?? 'Conta Google conectada'}</p>
-                  <p>Conectado em: {calendarConnectedAt ?? 'Data indisponível'}</p>
-                  <p>{calendarStatus.tools_count} tools disponíveis</p>
-                </div>
-              ) : (
-                <p className="mt-2 text-xs text-muted">Agenda ainda não conectada.</p>
-              )}
-            </div>
-
-            {calendarStatus.connected ? (
-              <div className="flex gap-2">
-                <button
-                  onClick={testCalendarConnection}
-                  disabled={testingCalendar}
-                  className="focus-ring h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted transition hover:text-ink disabled:opacity-60"
-                >
-                  {testingCalendar ? 'Testando…' : 'Testar Conexão'}
-                </button>
-                <button
-                  onClick={() => setConfirmDisconnectCalendar(true)}
-                  className="focus-ring h-8 rounded-md border border-danger/40 bg-danger/10 px-3 text-xs text-danger transition hover:bg-danger/20"
-                >
-                  Desconectar
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => { window.location.href = `${resolvePublicApiUrl()}/api/mcp/google-calendar/auth/start` }}
-                className="focus-ring h-8 rounded-md border border-accent/40 bg-accent/10 px-3 text-xs font-semibold text-accent transition hover:bg-accent/20"
-              >
-                Conectar com Google Calendar
-              </button>
-            )}
-          </div>
-          {calendarStatus.connected && (
-            <div className="mt-4 grid gap-4 border-t border-line pt-4">
-              <Field label="Agenda usada pelo agente">
-                <select
-                  value={values.google_calendar_id ?? calendarStatus.selected_calendar_id ?? 'primary'}
-                  onChange={e => set('google_calendar_id', e.target.value)}
-                  disabled={loadingCalendars}
+        <div className="surface rounded-2xl p-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            {Object.entries(activeConfig).filter(([key]) => key !== 'status').map(([key, value]) => (
+              <label key={key} className="block">
+                <span className="mb-1 block font-mono text-xs text-muted">{key}</span>
+                <input
+                  value={draft[key] ?? formatValue(value)}
+                  onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))}
                   className="field-input"
-                >
-                  {calendarOptions.length === 0 ? (
-                    <option value={calendarStatus.selected_calendar_id ?? 'primary'}>
-                      {loadingCalendars ? 'Carregando agendas…' : 'Agenda principal'}
-                    </option>
-                  ) : calendarOptions.map(calendar => (
-                    <option key={calendar.id} value={calendar.id}>
-                      {calendar.summary}{calendar.primary ? ' (principal)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="Descrição padrão do evento">
-                <textarea
-                  value={values.google_calendar_event_description_template ?? DEFAULT_EVENT_DESCRIPTION_TEMPLATE}
-                  onChange={e => set('google_calendar_event_description_template', e.target.value)}
-                  className="field-input min-h-32 font-mono text-xs"
                 />
-                <span className="text-[11px] text-muted/60">
-                  Variáveis: {'{lead_name}'}, {'{lead_phone}'}, {'{service_interest}'}, {'{meeting_reason}'}, {'{notes}'}.
-                </span>
-              </Field>
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-lg border border-line bg-canvas p-4">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className={wacliAuthenticated ? 'text-success' : 'text-muted'}>
-                  {wacliAuthenticated ? '●' : '○'}
-                </span>
-                <h4 className="font-semibold text-ink">WhatsApp CLI</h4>
-              </div>
-              <div className="mt-2 space-y-1 text-xs text-muted">
-                <p>Binário: {wacliStatus?.installed ? 'instalado' : 'não detectado'}</p>
-                <p>Login: {wacliAuthenticated ? 'autenticado' : 'aguardando QR'}</p>
-                <p>Conexão: {wacliConnected ? 'conectado' : 'offline'}</p>
-                <p>Tool do assistente interno: {wacliStatus?.enabled ? 'habilitada' : 'desabilitada'}</p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => { void refreshWacliStatus() }}
-                className="focus-ring h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted transition hover:text-ink"
-              >
-                Atualizar
-              </button>
-              <button
-                onClick={() => { void startWacliAuth() }}
-                disabled={loadingWacli || Boolean(wacliAuthOutput?.running)}
-                className="focus-ring h-8 rounded-md border border-accent/40 bg-accent/10 px-3 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-60"
-              >
-                {wacliAuthOutput?.running ? 'QR ativo' : 'Gerar QR'}
-              </button>
-              {wacliAuthOutput?.running && (
-                <button
-                  onClick={() => { void stopWacliAuth() }}
-                  className="focus-ring h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted transition hover:text-ink"
-                >
-                  Parar QR
-                </button>
-              )}
-            </div>
+              </label>
+            ))}
           </div>
-
-          <div className="mt-4 grid gap-3 border-t border-line pt-4">
-            <Field label="Perfil/store do WhatsApp CLI">
-              <input
-                value={values.wacli_store ?? '/data/wacli'}
-                onChange={e => set('wacli_store', e.target.value)}
-                placeholder="/data/wacli"
-                className="field-input font-mono text-xs"
-              />
-              <span className="text-[11px] text-muted/60">
-                Para trocar o número atendente, use outro caminho, salve tudo e gere um novo QR. Exemplo: /data/wacli-pedro.
-              </span>
-            </Field>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => { void startWacliSync() }}
-                disabled={!wacliAuthenticated || Boolean(wacliSyncOutput?.running) || loadingWacli}
-                className="focus-ring h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted transition hover:text-ink disabled:opacity-50"
-              >
-                {wacliSyncOutput?.running ? 'Sync rodando' : 'Iniciar sync contínuo'}
-              </button>
-              {wacliSyncOutput?.running && (
-                <button
-                  onClick={() => { void stopWacliSync() }}
-                  className="focus-ring h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted transition hover:text-ink"
-                >
-                  Parar sync
-                </button>
-              )}
-              <button
-                onClick={() => { void toggleWacliTool(!wacliStatus?.enabled) }}
-                disabled={!wacliAuthenticated}
-                className={`focus-ring h-8 rounded-md border px-3 text-xs font-semibold transition disabled:opacity-50 ${
-                  wacliStatus?.enabled
-                    ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/20'
-                    : 'border-success/40 bg-success/10 text-success hover:bg-success/20'
-                }`}
-              >
-                {wacliStatus?.enabled ? 'Desabilitar tool' : 'Habilitar tool'}
-              </button>
-            </div>
-
-            <div className="rounded-md border border-line bg-elevated p-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted">QR / saída do wacli</span>
-              <button
-                onClick={() => { void refreshWacliAuthOutput() }}
-                className="focus-ring h-7 rounded-md border border-line bg-canvas px-2 text-[11px] text-muted transition hover:text-ink"
-              >
-                Recarregar saída
-              </button>
-              <button
-                onClick={() => setShowWacliQrDialog(true)}
-                className="focus-ring h-7 rounded-md border border-accent/40 bg-accent/10 px-2 text-[11px] font-semibold text-accent transition hover:bg-accent/20"
-              >
-                Abrir QR
-              </button>
-            </div>
-              <pre className="max-h-[260px] overflow-auto whitespace-pre rounded-md bg-black p-3 font-mono text-[5px] leading-none text-white sm:max-h-[360px] sm:text-[7px]">
-                {wacliAuthOutput?.output || 'Clique em "Gerar QR" e escaneie pelo WhatsApp em Aparelhos conectados.'}
-              </pre>
-            </div>
-          </div>
-        </div>
-      </Section>
-
-      {/* SEÇÃO: API */}
-      <Section title="API" description="Conexão com o provedor de LLM (OpenAI compatível)">
-        <Field label="OpenAI API Key">
-          <div className="flex gap-2">
-            <input
-              type={showApiKey ? 'text' : 'password'}
-              value={values.openai_api_key ?? ''}
-              onChange={e => set('openai_api_key', e.target.value)}
-              placeholder="sk-..."
-              className="field-input flex-1 font-mono text-xs"
-            />
-            <button
-              onClick={() => setShowApiKey(p => !p)}
-              className="focus-ring h-9 rounded-md border border-line bg-elevated px-3 text-xs text-muted hover:text-ink transition"
-            >
-              {showApiKey ? 'Ocultar' : 'Mostrar'}
-            </button>
-          </div>
-          {values.openai_api_key && !showApiKey && (
-            <span className="font-mono text-[10px] text-muted/60">
-              Exibindo: …{values.openai_api_key.slice(-4)}
-            </span>
-          )}
-        </Field>
-
-        <Field label="OpenAI Base URL">
-          <input
-            value={values.openai_base_url ?? 'https://api.openai.com/v1'}
-            onChange={e => set('openai_base_url', e.target.value)}
-            placeholder="https://api.openai.com/v1"
-            className="field-input font-mono text-xs"
-          />
-          <span className="text-[11px] text-muted/60">Para usar outros providers (Anthropic via proxy, Azure, Together, etc.)</span>
-        </Field>
-
-        <Field label="Modelo padrão do Respondedor">
-          <select value={values.model_responder ?? 'gpt-4o-mini'} onChange={e => set('model_responder', e.target.value)} className="field-input">
-            {MODELS.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </Field>
-
-        <div className="pt-1">
           <button
-            onClick={testConnection}
-            disabled={testing}
-            className="focus-ring h-8 rounded-md border border-line bg-elevated px-4 text-xs text-muted hover:text-ink transition inline-flex items-center gap-2"
+            type="button"
+            onClick={saveSection}
+            disabled={Object.keys(draft).length === 0 || mutation.isPending}
+            className="save-btn mt-4"
           >
-            {testing ? (
-              <>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-9-9"/></svg>
-                Testando…
-              </>
-            ) : (
-              <>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                Testar conexão
-              </>
-            )}
+            {t('common.save')}
           </button>
-          {testResult !== 'idle' && (
-            <span className={`ml-3 text-xs font-mono ${testResult === 'ok' ? 'text-success' : 'text-danger'}`}>
-              {testResult === 'ok' ? '✓ Conexão OK' : '✗ Falha'}
-            </span>
-          )}
         </div>
-      </Section>
+      </section>
 
-      {/* SEÇÃO: Atendente */}
-      <Section title="Atendente" description="Identidade e comportamento do agente de atendimento">
-        <Field label="Nome do atendente">
-          <input
-            value={values.agent_name ?? ''}
-            onChange={e => set('agent_name', e.target.value)}
-            placeholder="Ana"
-            className="field-input"
-          />
-        </Field>
-
-        <Field label="Nome da empresa">
-          <input
-            value={values.company_name ?? ''}
-            onChange={e => set('company_name', e.target.value)}
-            placeholder="AttendentAI"
-            className="field-input"
-          />
-        </Field>
-
-        <Field label="Tom padrão">
-          <select value={values.agent_tone ?? ''} onChange={e => set('agent_tone', e.target.value)} className="field-input">
-            {TONES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-        </Field>
-
-        <Field label="Áudio autônomo">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => set('audio_auto_enabled', values.audio_auto_enabled === 'true' ? 'false' : 'true')}
-              className={`relative h-5 w-9 rounded-full border transition ${values.audio_auto_enabled === 'true' ? 'bg-success/20 border-success/40' : 'bg-canvas border-line'}`}
-            >
-              <span className={`absolute top-0.5 h-4 w-4 rounded-full transition-all ${values.audio_auto_enabled === 'true' ? 'left-4 bg-success' : 'left-0.5 bg-muted/40'}`} />
-            </button>
-            <span className="text-sm text-ink">{values.audio_auto_enabled === 'true' ? 'Ativado' : 'Desativado'}</span>
-          </div>
-        </Field>
-
-        <Field label="Máx. chars para áudio">
-          <input
-            type="number"
-            min={50}
-            max={2000}
-            value={values.audio_max_chars ?? '300'}
-            onChange={e => set('audio_max_chars', e.target.value)}
-            className="field-input w-32"
-          />
-          <span className="text-[11px] text-muted/60">Respostas maiores que este limite não serão convertidas em áudio</span>
-        </Field>
-      </Section>
-
-      {/* SEÇÃO: Webhook */}
-      <Section title="Webhook" description="Configurações de integração com o n8n ou outros systems">
-        <Field label="Webhook Secret">
-          <div className="flex gap-2">
+      <section className="grid gap-4 xl:grid-cols-2">
+        <div className="surface rounded-2xl p-4">
+          <h3 className="text-sm font-semibold">{t('blacklist.title')}</h3>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <input
-              type={showWebhookSecret ? 'text' : 'password'}
-              value={values.webhook_secret ?? ''}
-              onChange={e => set('webhook_secret', e.target.value)}
-              placeholder="Mínimo 32 caracteres"
-              className="field-input flex-1 font-mono text-xs"
+              value={blacklistPhone}
+              onChange={(event) => setBlacklistPhone(event.target.value)}
+              className="field-input"
+              placeholder={t('blacklist.phone')}
             />
             <button
-              onClick={() => setShowWebhookSecret(p => !p)}
-              className="focus-ring h-9 rounded-md border border-line bg-elevated px-3 text-xs text-muted hover:text-ink transition"
+              type="button"
+              disabled={!blacklistPhone.trim() || addBlacklistMutation.isPending}
+              onClick={() => addBlacklistMutation.mutate()}
+              className="save-btn"
             >
-              {showWebhookSecret ? 'Ocultar' : 'Mostrar'}
+              {t('blacklist.add')}
             </button>
           </div>
-        </Field>
-
-        <Field label="URL do Webhook (readonly)">
-          <div className="flex gap-2">
-            <input
-              readOnly
-              value={webhookUrl}
-              className="field-input flex-1 font-mono text-xs opacity-70 cursor-default"
-            />
-            <button
-              onClick={() => { navigator.clipboard.writeText(webhookUrl).catch(() => {}); toast({ title: 'URL copiada', variant: 'success' }) }}
-              className="focus-ring h-9 rounded-md border border-line bg-elevated px-3 text-xs text-muted hover:text-ink transition"
-            >
-              Copiar
-            </button>
-          </div>
-        </Field>
-      </Section>
-
-      {/* SEÇÃO: Assistente interno */}
-      <Section title="Assistente interno" description="Números/JIDs que serão atendidos pelo agente de gestão da plataforma">
-        <Field label="Contatos autorizados">
-          <textarea
-            value={values.internal_assistant_contacts ?? ''}
-            onChange={e => set('internal_assistant_contacts', e.target.value)}
-            placeholder="5511999999999&#10;120363000000000000@g.us"
-            className="field-input min-h-24 font-mono text-xs"
-          />
-          <span className="text-[11px] text-muted/60">
-            Um por linha, ou separados por vírgula. Quando bater com phone, session_id, jid, remoteJid ou groupJid, o respondedor normal é bypassado.
-          </span>
-        </Field>
-      </Section>
-
-      {/* SEÇÃO: Tools */}
-      <Section title="Tools dos agentes" description="Capacidades externas liberadas para o atendimento">
-        <Field label="HTTP Request">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => set('tool_http_enabled', values.tool_http_enabled === 'true' ? 'false' : 'true')}
-              className={`relative h-5 w-9 rounded-full border transition ${values.tool_http_enabled === 'true' ? 'bg-success/20 border-success/40' : 'bg-canvas border-line'}`}
-            >
-              <span className={`absolute top-0.5 h-4 w-4 rounded-full transition-all ${values.tool_http_enabled === 'true' ? 'left-4 bg-success' : 'left-0.5 bg-muted/40'}`} />
-            </button>
-            <span className="text-sm text-ink">{values.tool_http_enabled === 'true' ? 'Ativada' : 'Desativada'}</span>
-          </div>
-          <span className="text-[11px] text-muted/60">
-            Quando ativada, o respondedor pode chamar webhooks HTTP com JSON. Deixe desativada até configurar os prompts/URLs.
-          </span>
-        </Field>
-      </Section>
-
-      {/* SEÇÃO: Sistema */}
-      <Section title="Sistema" description="Configurações de runtime e operação">
-        <Field label="Timezone">
-          <select value={values.timezone ?? 'America/Sao_Paulo'} onChange={e => set('timezone', e.target.value)} className="field-input">
-            {TIMEZONES.map(tz => <option key={tz} value={tz}>{tz}</option>)}
-          </select>
-        </Field>
-
-        <Field label="Máximo de conversas simultâneas">
-          <div className="space-y-2">
-            <input
-              type="range"
-              min={1}
-              max={200}
-              value={parseInt(values.max_concurrent_chats ?? '50', 10)}
-              onChange={e => set('max_concurrent_chats', e.target.value)}
-              className="w-full accent-accent"
-            />
-            <div className="flex justify-between font-mono text-[10px] text-muted/60">
-              <span>1</span>
-              <span className="text-accent font-semibold">{values.max_concurrent_chats ?? '50'} chats</span>
-              <span>200</span>
-            </div>
-          </div>
-        </Field>
-
-        <Field label="Modo debug">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => set('debug_mode', values.debug_mode === 'true' ? 'false' : 'true')}
-              className={`relative h-5 w-9 rounded-full border transition ${values.debug_mode === 'true' ? 'bg-danger/20 border-danger/40' : 'bg-canvas border-line'}`}
-            >
-              <span className={`absolute top-0.5 h-4 w-4 rounded-full transition-all ${values.debug_mode === 'true' ? 'left-4 bg-danger' : 'left-0.5 bg-muted/40'}`} />
-            </button>
-            <span className="text-sm text-ink">{values.debug_mode === 'true' ? 'Ativo — system prompts completos nos logs' : 'Desativado'}</span>
-          </div>
-        </Field>
-
-        {/* Zona de perigo */}
-        <div className="rounded-xl border border-danger/30 bg-danger/5 p-5 mt-2">
-          <div className="font-mono text-[11px] uppercase tracking-[0.15em] text-danger mb-3">Zona de Perigo</div>
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-ink">Apagar TODO o histórico de conversas</p>
-              <p className="text-xs text-muted mt-1">Remove todas as mensagens e conversas do banco. Esta ação é irreversível.</p>
-            </div>
-            <button
-              onClick={() => { setClearConfirmStep(1); setConfirmClearHistory(true) }}
-              className="focus-ring shrink-0 h-8 rounded-md border border-danger/40 bg-danger/10 px-4 text-xs text-danger hover:bg-danger/20 transition"
-            >
-              Apagar histórico
-            </button>
-          </div>
-        </div>
-      </Section>
-
-      {/* Dialog de confirmação dupla */}
-      <ConfirmDialog
-        open={confirmClearHistory}
-        onOpenChange={open => { setConfirmClearHistory(open); if (!open) setClearConfirmStep(0) }}
-        title={clearConfirmStep === 1 ? 'Apagar histórico — Confirmação 1/2' : 'Confirmação FINAL — ação irreversível'}
-        description={
-          clearConfirmStep === 1
-            ? 'Você está prestes a apagar TODAS as mensagens e conversas. Clique em Continuar para a confirmação final.'
-            : 'Esta é sua última chance. Depois de confirmar, o histórico não poderá ser recuperado. Deseja realmente apagar TUDO?'
-        }
-        confirmLabel={clearConfirmStep === 1 ? 'Continuar →' : 'Sim, apagar TUDO'}
-        onConfirm={() => {
-          if (clearConfirmStep === 1) {
-            setClearConfirmStep(2)
-          } else {
-            void clearAllHistory()
-          }
-        }}
-      />
-
-      <ConfirmDialog
-        open={confirmDisconnectCalendar}
-        onOpenChange={setConfirmDisconnectCalendar}
-        title="Desconectar Google Calendar"
-        description="O agente deixará de acessar sua agenda até você conectar novamente."
-        confirmLabel="Desconectar"
-        onConfirm={() => { void disconnectCalendar() }}
-      />
-
-      <Dialog.Root open={showWacliQrDialog} onOpenChange={setShowWacliQrDialog}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm" />
-          <Dialog.Content className="fixed inset-x-2 top-1/2 z-50 max-h-[92vh] -translate-y-1/2 rounded-xl border border-line bg-panel p-3 shadow-2xl outline-none sm:inset-x-6 lg:left-1/2 lg:right-auto lg:w-[min(96vw,980px)] lg:-translate-x-1/2">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <Dialog.Title className="text-sm font-semibold text-ink">QR do WhatsApp CLI</Dialog.Title>
-                <Dialog.Description className="mt-1 text-xs text-muted">
-                  Abra o WhatsApp em Aparelhos conectados e escaneie este código.
-                </Dialog.Description>
-              </div>
-              <Dialog.Close asChild>
-                <button className="focus-ring h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted transition hover:text-ink">
-                  Fechar
+          <div className="mt-4 divide-y divide-line">
+            {(blacklistQuery.data?.items ?? []).map((item) => (
+              <div key={item.phone} className="flex min-h-14 items-center justify-between gap-3 py-2">
+                <div className="min-w-0">
+                  <div className="truncate font-mono text-sm">{item.phone}</div>
+                  <div className="truncate text-xs text-muted">{item.reason ?? t('blacklist.reason')}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeBlacklistMutation.mutate(item.phone)}
+                  className="focus-ring min-h-11 rounded-xl bg-elevated px-3 text-sm text-danger"
+                >
+                  {t('blacklist.remove')}
                 </button>
-              </Dialog.Close>
-            </div>
-            <div className="max-h-[78vh] overflow-auto rounded-lg bg-black p-2 sm:p-4">
-              <pre className="whitespace-pre font-mono text-[4px] leading-none text-white sm:text-[5px] md:text-[6px] lg:text-[7px]">
-                {wacliAuthOutput?.output || 'QR ainda não carregado. Clique em Gerar QR.'}
-              </pre>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-    </div>
-  )
-}
+              </div>
+            ))}
+          </div>
+        </div>
 
-/** Componente de seção */
-function Section({ title, description, children }: { title: string; description: string; children: React.ReactNode }): JSX.Element {
-  return (
-    <div className="space-y-5 rounded-xl border border-line bg-panel p-4 shadow-panel sm:p-6">
-      <div>
-        <h3 className="font-semibold text-ink">{title}</h3>
-        <p className="text-xs text-muted mt-0.5">{description}</p>
-      </div>
-      <div className="space-y-4 border-t border-line pt-4">
-        {children}
-      </div>
-    </div>
-  )
-}
-
-/** Componente de campo */
-function Field({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
-  return (
-    <div className="space-y-1.5">
-      <label className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted">{label}</label>
-      <div className="space-y-1">
-        {children}
-      </div>
+        <div className="surface rounded-2xl p-4">
+          <h3 className="text-sm font-semibold">{t('settings.evolution')}</h3>
+          <div className="mt-4 grid gap-2">
+            <input value={testNumber} onChange={(event) => setTestNumber(event.target.value)} className="field-input" placeholder={t('clients.phone')} />
+            <input value={testText} onChange={(event) => setTestText(event.target.value)} className="field-input" placeholder={t('common.send')} />
+            <button
+              type="button"
+              disabled={!testNumber.trim() || !testText.trim() || testSendMutation.isPending}
+              onClick={() => testSendMutation.mutate()}
+              className="save-btn"
+            >
+              {t('settings.testSend')}
+            </button>
+          </div>
+          <div className="mt-5 rounded-xl bg-elevated p-3 text-sm text-muted">
+            {t('settings.wacli')}: {wacliQuery.data?.enabled ? t('common.enabled') : t('common.disabled')}
+          </div>
+        </div>
+      </section>
     </div>
   )
 }

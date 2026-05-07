@@ -1,6 +1,6 @@
 'use client'
 // skill-editor-client.tsx — Editor de skill: CodeMirror + preview Markdown + histórico de versões
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
@@ -24,6 +24,8 @@ interface SkillEditorClientProps {
   initialSkill: Skill | null
   isNew: boolean
 }
+
+const skillVersionMemory = new Map<string, SkillVersion[]>()
 
 /** Constrói frontmatter YAML inicial para nova skill */
 function buildInitialContent(name: string): string {
@@ -78,26 +80,17 @@ export function SkillEditorClient({ initialSkill, isNew }: SkillEditorClientProp
   // Preview mode
   const [showPreview, setShowPreview] = useState(false)
 
-  // Histórico de versões (localStorage para persistência local)
-  const [versions, setVersions] = useState<SkillVersion[]>([])
+  // Histórico de versões em memória para evitar persistência local no dashboard.
+  const [versions, setVersions] = useState<SkillVersion[]>(() =>
+    initialSkill ? (skillVersionMemory.get(initialSkill.id) ?? []) : []
+  )
   const [showHistory, setShowHistory] = useState(false)
 
   const [saving, setSaving] = useState(false)
 
-  // Carrega versões do localStorage
-  useEffect(() => {
-    if (!initialSkill) return
-    const key = `skill_versions_${initialSkill.id}`
-    try {
-      const stored = localStorage.getItem(key)
-      if (stored) setVersions(JSON.parse(stored) as SkillVersion[])
-    } catch { /* ignora */ }
-  }, [initialSkill])
-
-  /** Salva snapshot de versão no localStorage (mantém últimas 5) */
+  /** Salva snapshot de versão em memória (mantém últimas 5) */
   const saveVersion = useCallback(() => {
     if (!initialSkill) return
-    const key = `skill_versions_${initialSkill.id}`
     const newVersion: SkillVersion = {
       id: Date.now().toString(),
       content,
@@ -105,9 +98,7 @@ export function SkillEditorClient({ initialSkill, isNew }: SkillEditorClientProp
     }
     const updated = [newVersion, ...versions].slice(0, 5)
     setVersions(updated)
-    try {
-      localStorage.setItem(key, JSON.stringify(updated))
-    } catch { /* ignora */ }
+    skillVersionMemory.set(initialSkill.id, updated)
   }, [initialSkill, content, versions])
 
   /** Restaura versão anterior */

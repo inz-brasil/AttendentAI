@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import * as Select from '@radix-ui/react-select'
+import { useTranslation } from 'react-i18next'
 import { Badge } from '../../../components/ui/badge'
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog'
 import { useToast } from '../../../components/ui/toast-provider'
@@ -41,7 +42,7 @@ interface ConfirmState {
 }
 
 
-function useDebouncedSearch(initial: string, delay = 300) {
+function useDebouncedSearch(initial: string, delay = 120) {
   const [raw, setRaw] = useState(initial)
   const [debounced, setDebounced] = useState(initial)
 
@@ -59,6 +60,7 @@ function useDebouncedSearch(initial: string, delay = 300) {
  * @returns Tabela operacional de leads.
  */
 export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Element {
+  const { t } = useTranslation()
   const router = useRouter()
   const { toast } = useToast()
 
@@ -150,10 +152,10 @@ export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Ele
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>
-          <div className="font-mono text-xs uppercase tracking-[0.22em] text-accent">Gerenciamento</div>
-          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-ink">Leads</h2>
+          <div className="font-mono text-xs uppercase tracking-[0.22em] text-accent">{t('clients.eyebrow')}</div>
+          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-ink">{t('clients.title')}</h2>
           <p className="mt-1.5 text-sm text-muted">
-            {leads.length} leads cadastrados · {filtered.length} no filtro atual
+            {t('clients.subtitle')}
           </p>
         </div>
       </div>
@@ -173,7 +175,7 @@ export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Ele
             type="search"
             value={searchRaw}
             onChange={e => handleSearch(e.target.value)}
-            placeholder="Buscar por nome ou telefone…"
+            placeholder={t('clients.searchPlaceholder')}
             className="focus-ring w-full rounded-lg border border-line bg-panel pl-9 pr-4 h-9 text-sm text-ink placeholder:text-muted transition hover:border-muted focus:border-cyan outline-none"
           />
         </div>
@@ -219,12 +221,12 @@ export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Ele
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line bg-panel/80">
-                <th className="px-4 py-3 text-left font-mono text-[11px] uppercase tracking-[0.15em] text-muted">Telefone</th>
-                <th className="px-4 py-3 text-left font-mono text-[11px] uppercase tracking-[0.15em] text-muted">Nome</th>
-                <th className="hidden px-4 py-3 text-left font-mono text-[11px] uppercase tracking-[0.15em] text-muted md:table-cell">Msgs</th>
+                <th className="px-4 py-3 text-left font-mono text-[11px] uppercase tracking-[0.15em] text-muted">{t('clients.phone')}</th>
+                <th className="px-4 py-3 text-left font-mono text-[11px] uppercase tracking-[0.15em] text-muted">{t('clients.name')}</th>
+                <th className="hidden px-4 py-3 text-left font-mono text-[11px] uppercase tracking-[0.15em] text-muted md:table-cell">{t('clients.messages')}</th>
                 <th className="hidden px-4 py-3 text-left font-mono text-[11px] uppercase tracking-[0.15em] text-muted lg:table-cell">Tags</th>
-                <th className="px-4 py-3 text-left font-mono text-[11px] uppercase tracking-[0.15em] text-muted">Status</th>
-                <th className="px-4 py-3 text-right font-mono text-[11px] uppercase tracking-[0.15em] text-muted">Ações</th>
+                <th className="px-4 py-3 text-left font-mono text-[11px] uppercase tracking-[0.15em] text-muted">{t('clients.status')}</th>
+                <th className="px-4 py-3 text-right font-mono text-[11px] uppercase tracking-[0.15em] text-muted">{t('clients.actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line bg-canvas">
@@ -237,7 +239,7 @@ export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Ele
                         <circle cx="9" cy="7" r="4"/>
                         <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
                       </svg>
-                      <span className="text-sm">Nenhum lead encontrado</span>
+                      <span className="text-sm">{t('common.empty')}</span>
                     </div>
                   </td>
                 </tr>
@@ -274,26 +276,26 @@ export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Ele
                       </Badge>
                     </td>
                     <td className="px-4 py-3.5">
-                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition">
+                      <div className="flex flex-wrap items-center justify-end gap-2 opacity-100 transition sm:flex-nowrap lg:opacity-0 lg:group-hover:opacity-100">
                         <Link
                           href={`/leads/${encodeURIComponent(lead.phone)}`}
                           className="focus-ring rounded-md border border-line bg-elevated px-3 h-7 inline-flex items-center text-xs text-ink hover:border-muted transition"
                         >
-                          Ver perfil
+                          {t('clients.profile')}
                         </Link>
                         <button
                           onClick={() => openConfirm('history', lead)}
                           className="focus-ring rounded-md border border-line bg-elevated px-3 h-7 text-xs text-muted hover:text-ink hover:border-muted transition"
                           title="Apagar histórico de mensagens"
                         >
-                          Histórico
+                          {t('clients.transcript')}
                         </button>
                         <button
                           onClick={() => openConfirm('lead', lead)}
                           className="focus-ring rounded-md border border-danger/30 bg-danger/10 px-3 h-7 text-xs text-danger hover:bg-danger/20 transition"
                           title="Remover lead permanentemente"
                         >
-                          Remover
+                          {t('common.remove')}
                         </button>
                       </div>
                     </td>
