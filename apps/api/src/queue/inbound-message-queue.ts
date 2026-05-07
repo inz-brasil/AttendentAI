@@ -1,6 +1,7 @@
 // inbound-message-queue.ts — Enfileira mensagens inbound com debounce BullMQ por tenant e telefone
 import { Queue, type Job } from 'bullmq'
 import { BATCH_WINDOW_MS } from '../config/constants'
+import { getSettingValue } from '../config/dashboard-config'
 import { traceEmitter } from '../observability/trace-emitter'
 import { redisConnection } from './redis'
 
@@ -30,6 +31,7 @@ export const inboundMessageQueue = new Queue<InboundQueueJob>('inbound-message-p
  */
 export async function enqueueInboundMessage(input: InboundQueueJob): Promise<Job<InboundQueueJob>> {
   const { phone, instanceId, tenantId } = input
+  const batchWindowMs = await getBatchWindowMs()
 
   const job = await inboundMessageQueue.add(
     'process-phone',
@@ -37,11 +39,11 @@ export async function enqueueInboundMessage(input: InboundQueueJob): Promise<Job
     {
       deduplication: {
         id: `tenant:${tenantId}:phone:${phone}`,
-        ttl: BATCH_WINDOW_MS,
+        ttl: batchWindowMs,
         extend: true,
         replace: true
       },
-      delay: BATCH_WINDOW_MS
+      delay: batchWindowMs
     }
   )
 
@@ -50,12 +52,18 @@ export async function enqueueInboundMessage(input: InboundQueueJob): Promise<Job
     phone,
     status: 'ok',
     data: {
-      job_id: job.id ?? null,
-      instance_id: instanceId,
-      batch_window_ms: BATCH_WINDOW_MS,
-      deduplication_id: `tenant:${tenantId}:phone:${phone}`
+        job_id: job.id ?? null,
+        instance_id: instanceId,
+        batch_window_ms: batchWindowMs,
+        deduplication_id: `tenant:${tenantId}:phone:${phone}`
     }
   })
 
   return job
+}
+
+async function getBatchWindowMs(): Promise<number> {
+  const raw = await getSettingValue('batch_window_ms')
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? value : BATCH_WINDOW_MS
 }

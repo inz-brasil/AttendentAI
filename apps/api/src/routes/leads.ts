@@ -1,13 +1,17 @@
 // leads.ts — Expõe endpoints CRUD básicos para leads
-import { count, eq } from 'drizzle-orm'
+import { and, count, desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { env } from '../config/env'
 import { db } from '../db/client'
-import { conversations, leadMemoryMeta, leads, messages, settings, type LeadStatus } from '../db/schema'
+import { conversations, leadMemoryMeta, leads, messageEvents, messages, settings, type LeadStatus } from '../db/schema'
 import { VaultManager } from '../vault-manager/manager'
 
 const leadParamsSchema = z.object({ phone: z.string().min(1) })
+const transcriptQuerySchema = z.object({
+  tenant_id: z.string().min(1).default('default'),
+  limit: z.coerce.number().int().min(1).max(200).default(50)
+})
 const leadBodySchema = z.object({
   phone: z.string().min(1),
   name: z.string().nullable().optional(),
@@ -36,7 +40,7 @@ function parseContactList(raw: string): string[] {
   const trimmed = raw.trim()
   if (!trimmed) return []
   try {
-    const parsed = JSON.parse(trimmed) as unknown
+    const parsed: unknown = JSON.parse(trimmed)
     if (Array.isArray(parsed)) {
       return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     }
@@ -83,6 +87,41 @@ export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
       last_compaction_at: meta?.last_compaction_at ?? null,
       total_compactions: meta?.total_compactions ?? 0,
       vault_files: vaultFiles
+    }
+  })
+
+  app.get('/api/leads/:phone/transcript', async (request) => {
+    const { phone } = leadParamsSchema.parse(request.params)
+    const query = transcriptQuerySchema.parse(request.query)
+    const rows = await db
+      .select()
+      .from(messageEvents)
+      .where(and(eq(messageEvents.tenant_id, query.tenant_id), eq(messageEvents.lead_phone, phone)))
+      .orderBy(desc(messageEvents.whatsapp_timestamp), desc(messageEvents.created_at))
+      .limit(query.limit)
+
+    return {
+      tenant_id: query.tenant_id,
+      phone,
+      messages: rows.reverse()
+    }
+  })
+
+  app.get('/api/leads/:phone/vault', async (request) => {
+    const { phone } = leadParamsSchema.parse(request.params)
+    const [memoria, historico, notas] = await Promise.all([
+      vault.read(phone, 'memoria.md'),
+      vault.read(phone, 'historico.md'),
+      vault.read(phone, 'notas.md')
+    ])
+
+    return {
+      phone,
+      files: {
+        'memoria.md': memoria,
+        'historico.md': historico,
+        'notas.md': notas
+      }
     }
   })
 

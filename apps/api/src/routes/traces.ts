@@ -1,13 +1,18 @@
 // traces.ts — Expõe rastros de tools, etapas dos agentes e stream SSE para debug
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../db/client'
-import { agentTraces } from '../db/schema'
+import { agentTraces, traceEvents } from '../db/schema'
 import { traceEmitter, type TraceEvent } from '../observability/trace-emitter'
 
 const phoneParamsSchema = z.object({ phone: z.string().min(1) })
 const traceStreamQuerySchema = z.object({ tenant_id: z.string().min(1) })
+const tracesQuerySchema = z.object({
+  batch_id: z.string().min(1).optional(),
+  tenant_id: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100)
+})
 
 function formatSseEvent(event: TraceEvent): string {
   return `event: trace\ndata: ${JSON.stringify(event)}\n\n`
@@ -68,7 +73,27 @@ export async function registerTraceRoutes(app: FastifyInstance): Promise<void> {
     }
   })
 
-  app.get('/api/traces', async () => {
+  app.get('/api/traces', async (request) => {
+    const query = tracesQuerySchema.parse(request.query)
+    if (query.batch_id) {
+      const filters = [
+        eq(traceEvents.batch_id, query.batch_id),
+        ...(query.tenant_id ? [eq(traceEvents.tenant_id, query.tenant_id)] : [])
+      ]
+      const rows = await db
+        .select()
+        .from(traceEvents)
+        .where(and(...filters))
+        .orderBy(desc(traceEvents.created_at))
+        .limit(query.limit)
+
+      return {
+        batch_id: query.batch_id,
+        tenant_id: query.tenant_id ?? null,
+        traces: rows.reverse()
+      }
+    }
+
     const traces = await db.select().from(agentTraces).orderBy(desc(agentTraces.created_at)).limit(100)
     return { traces }
   })

@@ -9,14 +9,18 @@ import { env } from './config/env'
 import { closeDb } from './db/client'
 import { registerAgentRoutes } from './routes/agents'
 import { registerAgentSkillRoutes } from './routes/agent-skills'
+import { registerBlacklistRoutes } from './routes/blacklist'
+import { registerConfigRoutes } from './routes/config'
 import { registerConversationRoutes } from './routes/conversations'
 import { registerAutomationRoutes } from './routes/automation'
 import { registerHealthRoutes } from './routes/health'
 import { registerLeadRoutes } from './routes/leads'
 import { registerMcpRoutes } from './routes/mcp'
 import { registerPlaygroundRoutes } from './routes/playground'
+import { registerQueueStatusRoutes } from './routes/queue-status'
 import { registerSettingRoutes } from './routes/settings'
 import { registerSkillRoutes } from './routes/skills'
+import { registerEvolutionTestRoutes } from './routes/test-evolution'
 import { registerTraceRoutes } from './routes/traces'
 import { registerVaultRoutes } from './routes/vault'
 import { registerWacliRoutes } from './routes/wacli'
@@ -119,6 +123,8 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
   await registerHealthRoutes(app)
   await registerWebSocketServer(app)
   await registerWebhookRoutes(app)
+  await registerConfigRoutes(app)
+  await registerBlacklistRoutes(app)
   await registerAutomationRoutes(app)
   await registerLeadRoutes(app)
   await registerConversationRoutes(app)
@@ -128,7 +134,9 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
   await registerSettingRoutes(app)
   await registerVaultRoutes(app)
   await registerTraceRoutes(app)
+  await registerQueueStatusRoutes(app)
   await registerWacliRoutes(app)
+  await registerEvolutionTestRoutes(app)
   await registerPlaygroundRoutes(app)
   await registerMcpRoutes(app)
   await registerMockMcpServer(app)

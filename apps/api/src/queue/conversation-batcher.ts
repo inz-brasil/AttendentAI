@@ -1,5 +1,6 @@
 // conversation-batcher.ts — Agrupa eventos recebidos e chama o orquestrador após segunda decisão
 import { BATCH_MAX_MESSAGES } from '../config/constants'
+import { getSettingValue } from '../config/dashboard-config'
 import type { MessageEvent } from '../db/repositories/message-events.repository'
 import { traceEmitter } from '../observability/trace-emitter'
 import { AutomationDecisionEngine } from '../automation/decision-engine'
@@ -43,10 +44,11 @@ export class ConversationBatcher {
    */
   async process(job: InboundQueueJob): Promise<ConversationBatchResult> {
     const startedAt = performance.now()
-    const events = await this.repository.findPendingReceivedBatch(job.tenantId, job.phone, BATCH_MAX_MESSAGES)
+    const batchMaxMessages = await getBatchMaxMessages()
+    const events = await this.repository.findPendingReceivedBatch(job.tenantId, job.phone, batchMaxMessages)
 
     if (events.length === 0) {
-      await this.emitBatchProcessed(job, null, 0, 'ignored', { reason: 'empty_batch' }, startedAt)
+      await this.emitBatchProcessed(job, null, 0, 'ignored', { reason: 'empty_batch', batch_max_messages: batchMaxMessages }, startedAt)
       return { batchId: null, processed: 0, shouldReply: false, reason: 'empty_batch', responseMessage: null }
     }
 
@@ -63,11 +65,14 @@ export class ConversationBatcher {
     })
 
     if (!decision.shouldReply) {
-      await this.emitBatchProcessed(job, batchId, events.length, 'ignored', { reason: decision.reason }, startedAt)
+      await this.emitBatchProcessed(job, batchId, events.length, 'ignored', {
+        reason: decision.reason,
+        batch_max_messages: batchMaxMessages
+      }, startedAt)
       return { batchId, processed: events.length, shouldReply: false, reason: decision.reason, responseMessage: null }
     }
 
-    const presenceSession = this.startPresence(job, firstEvent)
+    const presenceSession = await this.startPresence(job, firstEvent)
 
     try {
       await traceEmitter.emit('context_assembled', {
@@ -88,7 +93,8 @@ export class ConversationBatcher {
         delivery_status: delivery.status,
         delivery_mode: delivery.mode,
         delivery_event_id: delivery.intendedEventId,
-        delivery_error: delivery.errorMessage
+        delivery_error: delivery.errorMessage,
+        batch_max_messages: batchMaxMessages
       }, startedAt)
       this.compactor.scheduleAfterBatch({ tenantId: job.tenantId, phone: job.phone, batchId })
 
@@ -156,7 +162,12 @@ export class ConversationBatcher {
     })
   }
 
-  private startPresence(job: InboundQueueJob, firstEvent: MessageEvent): PresenceSession | null {
+  private async startPresence(job: InboundQueueJob, firstEvent: MessageEvent): Promise<PresenceSession | null> {
+    const enabled = (await getSettingValue('presence_enabled')) ?? 'true'
+    if (enabled.trim().toLowerCase() === 'false') {
+      return null
+    }
+
     const instance = firstEvent.instance?.trim()
     if (!instance) {
       return null
@@ -191,7 +202,7 @@ export class ConversationBatcher {
         ...data,
         processed,
         instance_id: job.instanceId,
-        batch_max_messages: BATCH_MAX_MESSAGES
+        batch_max_messages: data.batch_max_messages ?? BATCH_MAX_MESSAGES
       }
     }, Math.round(performance.now() - startedAt))
   }
@@ -294,4 +305,10 @@ function toRecord(value: unknown): Record<string, unknown> | null {
 function readString(source: Record<string, unknown> | null, key: string): string | null {
   const value = source?.[key]
   return typeof value === 'string' && value.trim() ? value : null
+}
+
+async function getBatchMaxMessages(): Promise<number> {
+  const raw = await getSettingValue('batch_max_messages')
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? value : BATCH_MAX_MESSAGES
 }
