@@ -29,6 +29,26 @@ services:
       start_period: 10s
 
   # ──────────────────────────────────────────────
+  # SearXNG — busca web interna para o assistente interno
+  # ──────────────────────────────────────────────
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8888:8080"
+    volumes:
+      - ./config/searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888/
+      - SEARXNG_SECRET=${SEARXNG_SECRET}
+    networks:
+      - attendentai-net
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ──────────────────────────────────────────────
   # API — Backend Fastify + Bun
   # ──────────────────────────────────────────────
   api:
@@ -45,6 +65,7 @@ services:
       DATABASE_URL: file:/data/db.sqlite
       SQLITE_JOURNAL_MODE: DELETE
       VAULT_PATH: /vault
+      SEARXNG_URL: http://searxng:8080
       PORT: "3001"
     ports:
       - "3001:3001"
@@ -82,6 +103,7 @@ services:
       DATABASE_URL: file:/data/db.sqlite
       SQLITE_JOURNAL_MODE: DELETE
       VAULT_PATH: /vault
+      SEARXNG_URL: http://searxng:8080
       PORT: "3001"
     volumes:
       - ./data:/data

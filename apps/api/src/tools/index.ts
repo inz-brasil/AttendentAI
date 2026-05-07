@@ -6,6 +6,7 @@ import { executePlatformEditorTool } from './platform-editor'
 import { executeLeadLookupTool, executePlatformStatsTool, executeVaultReadTool } from './platform'
 import { executeSystemControlTool } from './system-control'
 import { executeWacliTool } from './wacli'
+import { executeWebSearchTool } from './web-search.tool'
 
 export const httpRequestToolDefinition: ChatCompletionTool = {
   type: 'function',
@@ -269,6 +270,26 @@ export const platformEditorToolDefinition: ChatCompletionTool = {
   }
 }
 
+export const webSearchToolDefinition: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'web_search',
+    description:
+      'Busca informações atuais na web usando o SearXNG interno. Use quando precisar verificar notícias, documentação, dados recentes ou fatos que podem ter mudado.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        query: { type: 'string', description: 'Consulta de busca. Seja específico.' },
+        language: { type: 'string', description: 'Idioma/locale da busca. Padrão: pt-BR.' },
+        categories: { type: 'string', description: 'Categoria SearXNG. Padrão: general.' },
+        max_results: { type: 'number', description: 'Máximo de resultados. Padrão: 5, máximo: 10.' }
+      },
+      required: ['query']
+    }
+  }
+}
+
 /**
  * Executa uma tool pelo nome registrado.
  * @param name Nome da função chamada pelo modelo.
@@ -306,6 +327,10 @@ export async function executeRegisteredTool(name: string, args: unknown): Promis
 
   if (name === 'platform_editor') {
     return executePlatformEditorTool(args)
+  }
+
+  if (name === 'web_search') {
+    return executeWebSearchTool(args)
   }
 
   throw new Error(`Unknown tool: ${name}`)

@@ -20,7 +20,8 @@ import {
   platformStatsToolDefinition,
   systemControlToolDefinition,
   vaultReadToolDefinition,
-  wacliToolDefinition
+  wacliToolDefinition,
+  webSearchToolDefinition
 } from '../tools'
 import { BaseAgent, type AgentInput, type AgentRunMetadata, type AgentToolTrace } from './base-agent'
 import { SchedulingAgent } from './scheduling-agent'
@@ -35,6 +36,7 @@ Quando scheduling_action retornar user_message, você pode enviar para outro nú
 Para envio ativo pelo WhatsApp, chame evolution_send com recipients e messages. Nunca diga que foi enviado antes da tool retornar sucesso.
 Não confunda histórico registrado com mensagem entregue: delivery_status=registered_only não significa envio externo.
 Para ligar/desligar o agente, configurar horário automático ou pausar/liberar leads, use system_control.
+Para fatos atuais, notícias, documentação recente ou qualquer informação que possa ter mudado, use web_search antes de responder. Cite as fontes encontradas de forma curta.
 Para consultar histórico WhatsApp sincronizado, listar grupos ou enviar aviso via WhatsApp CLI a pedido explícito do admin, use wacli. Para grupos, primeiro use action="list_groups" para achar o chat_jid @g.us; depois use action="send_text" com chat_jid.
 Se wacli retornar success=false, não diga que vai tentar novamente sem chamar uma nova tool na mesma execução. Informe o erro real e peça confirmação para nova tentativa se necessário.
 Para melhorar atendimento, comparar conversa real com vault, ajustar prompts, atualizar skills ou registrar aprendizados no vault, use platform_editor.
@@ -153,6 +155,7 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
       evolutionSendToolDefinition,
       httpRequestToolDefinition,
       systemControlToolDefinition,
+      webSearchToolDefinition,
       wacliToolDefinition,
       platformEditorToolDefinition
     ]
@@ -196,7 +199,7 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
       : await executeRegisteredTool(toolCall.function.name, args)
     return {
       tool: toolCall.function.name,
-      arguments: args,
+      arguments: sanitizeToolArguments(toolCall.function.name, args),
       result,
       duration_ms: Date.now() - startedAt
     }
@@ -321,5 +324,16 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
     }
 
     return 'not_sent'
+  }
+}
+
+function sanitizeToolArguments(toolName: string, args: Record<string, unknown>): Record<string, unknown> {
+  if (toolName !== 'web_search') {
+    return args
+  }
+
+  return {
+    ...args,
+    query: '[redacted]'
   }
 }
