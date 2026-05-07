@@ -25,6 +25,7 @@ import { registerGoogleCalendarMcpServer } from './mcp-servers/google-calendar'
 import { registerMockMcpServer } from './mcp-servers/mock'
 import { traceEmitter } from './observability/trace-emitter'
 import { closeInboundWorker, startInboundWorker } from './queue/inbound-worker'
+import { vaultCompactor } from './vault/vault-compactor'
 import { registerWebSocketServer } from './websocket/server'
 
 const requestStartTimes = new WeakMap<object, number>()
@@ -133,6 +134,7 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
   await registerMockMcpServer(app)
   await registerGoogleCalendarMcpServer(app)
   traceEmitter.startAutoPurge()
+  vaultCompactor.startDailyCron()
   startInboundWorker()
 
   return app

@@ -7,6 +7,7 @@ import { ResponseDispatcher } from '../delivery/dispatcher'
 import { presenceSimulator, type PresenceSession, type PresenceSimulator } from '../delivery/presence-simulator'
 import type { QueryEngineOptions, WebhookPayload, WebhookResponse } from '../orchestrator'
 import { TranscriptRepository } from '../transcript/repository'
+import { vaultCompactor, type VaultCompactor } from '../vault/vault-compactor'
 import type { NormalizedWhatsappEvent } from '../webhook/evolution-normalizer'
 import type { InboundQueueJob } from './inbound-message-queue'
 
@@ -31,7 +32,8 @@ export class ConversationBatcher {
     private readonly decisionEngine = new AutomationDecisionEngine(),
     private readonly orchestrator: OrchestratorClient | null = null,
     private readonly dispatcher = new ResponseDispatcher(),
-    private readonly presence: PresenceSimulator = presenceSimulator
+    private readonly presence: PresenceSimulator = presenceSimulator,
+    private readonly compactor: VaultCompactor = vaultCompactor
   ) {}
 
   /**
@@ -88,6 +90,7 @@ export class ConversationBatcher {
         delivery_event_id: delivery.intendedEventId,
         delivery_error: delivery.errorMessage
       }, startedAt)
+      this.compactor.scheduleAfterBatch({ tenantId: job.tenantId, phone: job.phone, batchId })
 
       return { batchId, processed: events.length, shouldReply: true, reason: decision.reason, responseMessage: response.message }
     } catch (error) {

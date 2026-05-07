@@ -2,6 +2,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { env } from '../config/env'
+import { vaultCompactor } from '../vault/vault-compactor'
 import { VaultManager } from '../vault-manager/manager'
 
 const phoneParamsSchema = z.object({ phone: z.string().min(1) })
@@ -10,6 +11,10 @@ const fileParamsSchema = z.object({
   filename: z.string().min(1)
 })
 const fileBodySchema = z.object({ content: z.string() })
+const compactBodySchema = z.object({
+  tenant_id: z.string().min(1).default('default'),
+  batch_id: z.string().nullable().optional()
+}).default({ tenant_id: 'default' })
 
 /**
  * Registra endpoints de /api/vault.
@@ -73,6 +78,17 @@ export async function registerVaultRoutes(app: FastifyInstance): Promise<void> {
     const params = phoneParamsSchema.parse(request.params)
     await vault.deleteHistory(params.phone)
     return { success: true }
+  })
+
+  app.post('/api/vault/:phone/compact', async (request) => {
+    const params = phoneParamsSchema.parse(request.params)
+    const body = compactBodySchema.parse(request.body ?? {})
+    const result = await vaultCompactor.compact({
+      tenantId: body.tenant_id,
+      phone: params.phone,
+      batchId: body.batch_id ?? null
+    })
+    return { success: true, result }
   })
 
   app.delete('/api/vault/:phone', async (request) => {
