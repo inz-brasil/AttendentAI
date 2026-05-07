@@ -160,6 +160,38 @@ export interface GoogleCalendarOption {
   selected: boolean
 }
 
+export interface WacliDoctorBody {
+  success?: boolean
+  data?: {
+    store_dir?: string
+    lock_held?: boolean
+    authenticated?: boolean
+    connected?: boolean
+    fts_enabled?: boolean
+  }
+  error?: string | null
+}
+
+export interface WacliStatus {
+  installed: boolean
+  enabled: boolean
+  command: string
+  store: string
+  auth_running: boolean
+  sync_running: boolean
+  doctor: WacliDoctorBody | null
+  error: string | null
+}
+
+export interface WacliProcessStatus {
+  running: boolean
+  output: string
+  started_at: string | null
+  exited_at: string | null
+  exit_code: number | null
+  error: string | null
+}
+
 export interface NewMcpServerInput {
   name: string
   slug: string
@@ -181,9 +213,7 @@ export class ApiClientError extends Error {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
-  }
+  const headers: Record<string, string> = init.body ? { 'Content-Type': 'application/json' } : {}
   if (process.env.WEBHOOK_SECRET) {
     headers.Authorization = `Bearer ${process.env.WEBHOOK_SECRET}`
   }
@@ -250,5 +280,14 @@ export const api = {
   getGoogleCalendars: () =>
     request<{ selected_calendar_id: string; calendars: GoogleCalendarOption[] }>('/api/mcp/google-calendar/calendars'),
   disconnectCalendar: (credentialId: string) =>
-    request<{ success: boolean }>(`/api/mcp/credentials/${encodeURIComponent(credentialId)}`, { method: 'DELETE' })
+    request<{ success: boolean }>(`/api/mcp/credentials/${encodeURIComponent(credentialId)}`, { method: 'DELETE' }),
+  getWacliStatus: () => request<WacliStatus>('/api/wacli/status'),
+  startWacliAuth: () => request<{ success: boolean; status: WacliProcessStatus }>('/api/wacli/auth/start', { method: 'POST' }),
+  getWacliAuthOutput: () => request<WacliProcessStatus>('/api/wacli/auth/output'),
+  stopWacliAuth: () => request<{ success: boolean }>('/api/wacli/auth/stop', { method: 'POST' }),
+  startWacliSync: () => request<{ success: boolean; status: WacliProcessStatus }>('/api/wacli/sync/start', { method: 'POST' }),
+  getWacliSyncOutput: () => request<WacliProcessStatus>('/api/wacli/sync/output'),
+  stopWacliSync: () => request<{ success: boolean }>('/api/wacli/sync/stop', { method: 'POST' }),
+  enableWacli: () => request<{ success: boolean }>('/api/wacli/enable', { method: 'POST' }),
+  disableWacli: () => request<{ success: boolean }>('/api/wacli/disable', { method: 'POST' })
 }

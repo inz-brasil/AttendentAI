@@ -19,12 +19,19 @@
     {
       "idx": 2,
       "version": "6",
+      "when": 1777983600000,
+      "tag": "0004_automation_control",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
       "when": 1778112000000,
       "tag": "0005_create_message_events",
       "breakpoints": true
     },
     {
-      "idx": 3,
+      "idx": 4,
       "version": "6",
       "when": 1778112060000,
       "tag": "0006_create_trace_events",

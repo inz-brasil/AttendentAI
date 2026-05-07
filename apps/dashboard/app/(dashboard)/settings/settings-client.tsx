@@ -1,10 +1,11 @@
 'use client'
 // settings-client.tsx — Formulário de configurações globais do AttendentAI
+import * as Dialog from '@radix-ui/react-dialog'
 import { useState, useCallback, useEffect } from 'react'
 import { useToast } from '../../../components/ui/toast-provider'
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog'
 import { logoutAction } from '../../actions'
-import type { CalendarStatus, GoogleCalendarOption, Setting } from '../../../lib/api'
+import type { CalendarStatus, GoogleCalendarOption, Setting, WacliProcessStatus, WacliStatus } from '../../../lib/api'
 
 const API_BASE = '/api/backend'
 
@@ -78,7 +79,11 @@ export function SettingsClient({ initialSettings, initialCalendarStatus }: Setti
   const [values, setValues] = useState<Record<string, string>>(toMap(initialSettings ?? []))
   const [calendarStatus, setCalendarStatus] = useState(initialCalendarStatus)
   const [calendarOptions, setCalendarOptions] = useState<GoogleCalendarOption[]>([])
+  const [wacliStatus, setWacliStatus] = useState<WacliStatus | null>(null)
+  const [wacliAuthOutput, setWacliAuthOutput] = useState<WacliProcessStatus | null>(null)
+  const [wacliSyncOutput, setWacliSyncOutput] = useState<WacliProcessStatus | null>(null)
   const [loadingCalendars, setLoadingCalendars] = useState(false)
+  const [loadingWacli, setLoadingWacli] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testingCalendar, setTestingCalendar] = useState(false)
@@ -88,6 +93,7 @@ export function SettingsClient({ initialSettings, initialCalendarStatus }: Setti
   const [showWebhookSecret, setShowWebhookSecret] = useState(false)
   const [confirmClearHistory, setConfirmClearHistory] = useState(false)
   const [clearConfirmStep, setClearConfirmStep] = useState(0)
+  const [showWacliQrDialog, setShowWacliQrDialog] = useState(false)
 
   const set = useCallback((key: string, value: string) => {
     setValues(prev => ({ ...prev, [key]: value }))
@@ -97,6 +103,28 @@ export function SettingsClient({ initialSettings, initialCalendarStatus }: Setti
     if (!calendarStatus.connected) return
     void loadCalendarOptions()
   }, [calendarStatus.connected])
+
+  useEffect(() => {
+    void refreshWacliStatus()
+  }, [])
+
+  useEffect(() => {
+    if (!wacliAuthOutput?.running) return
+    const timer = window.setInterval(() => {
+      void refreshWacliAuthOutput()
+      void refreshWacliStatus()
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [wacliAuthOutput?.running])
+
+  useEffect(() => {
+    if (!wacliSyncOutput?.running) return
+    const timer = window.setInterval(() => {
+      void refreshWacliSyncOutput()
+      void refreshWacliStatus()
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [wacliSyncOutput?.running])
 
   async function saveAll() {
     setSaving(true)
@@ -221,6 +249,86 @@ export function SettingsClient({ initialSettings, initialCalendarStatus }: Setti
     }
   }
 
+  async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const headers: HeadersInit = init.body
+      ? { 'Content-Type': 'application/json', ...init.headers }
+      : { ...init.headers }
+
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers,
+      cache: 'no-store'
+    })
+    if (!response.ok) throw new Error('Falha na API')
+    return await response.json() as T
+  }
+
+  async function refreshWacliStatus(): Promise<void> {
+    try {
+      setWacliStatus(await requestJson<WacliStatus>('/api/wacli/status'))
+    } catch {
+      toast({ title: 'Erro ao carregar status do WhatsApp CLI', variant: 'danger' })
+    }
+  }
+
+  async function refreshWacliAuthOutput(): Promise<void> {
+    setWacliAuthOutput(await requestJson<WacliProcessStatus>('/api/wacli/auth/output'))
+  }
+
+  async function refreshWacliSyncOutput(): Promise<void> {
+    setWacliSyncOutput(await requestJson<WacliProcessStatus>('/api/wacli/sync/output'))
+  }
+
+  async function startWacliAuth(): Promise<void> {
+    setLoadingWacli(true)
+    try {
+      const body = await requestJson<{ status: WacliProcessStatus }>('/api/wacli/auth/start', { method: 'POST' })
+      setWacliAuthOutput(body.status)
+      setShowWacliQrDialog(true)
+      toast({ title: 'QR do WhatsApp iniciado', variant: 'success' })
+    } catch {
+      toast({ title: 'Erro ao iniciar QR do WhatsApp', variant: 'danger' })
+    } finally {
+      setLoadingWacli(false)
+    }
+  }
+
+  async function stopWacliAuth(): Promise<void> {
+    await requestJson<{ success: boolean }>('/api/wacli/auth/stop', { method: 'POST' })
+    await refreshWacliAuthOutput()
+    await refreshWacliStatus()
+  }
+
+  async function startWacliSync(): Promise<void> {
+    setLoadingWacli(true)
+    try {
+      const body = await requestJson<{ status: WacliProcessStatus }>('/api/wacli/sync/start', { method: 'POST' })
+      setWacliSyncOutput(body.status)
+      toast({ title: 'Sincronização contínua iniciada', variant: 'success' })
+    } catch {
+      toast({ title: 'Erro ao iniciar sincronização WhatsApp', variant: 'danger' })
+    } finally {
+      setLoadingWacli(false)
+    }
+  }
+
+  async function stopWacliSync(): Promise<void> {
+    await requestJson<{ success: boolean }>('/api/wacli/sync/stop', { method: 'POST' })
+    await refreshWacliSyncOutput()
+    await refreshWacliStatus()
+  }
+
+  async function toggleWacliTool(enabled: boolean): Promise<void> {
+    try {
+      await requestJson<{ success: boolean }>(enabled ? '/api/wacli/enable' : '/api/wacli/disable', { method: 'POST' })
+      set('wacli_enabled', String(enabled))
+      await refreshWacliStatus()
+      toast({ title: enabled ? 'Tool wacli habilitada' : 'Tool wacli desabilitada', variant: 'success' })
+    } catch {
+      toast({ title: 'Erro ao alterar tool wacli', variant: 'danger' })
+    }
+  }
+
   /** Mascaramento de valor sensível */
   function mask(value: string, show: boolean): string {
     if (!value) return ''
@@ -239,6 +347,9 @@ export function SettingsClient({ initialSettings, initialCalendarStatus }: Setti
         minute: '2-digit'
       }).format(new Date(calendarStatus.credential.granted_at))
     : null
+  const wacliDoctorData = wacliStatus?.doctor?.data
+  const wacliAuthenticated = Boolean(wacliDoctorData?.authenticated)
+  const wacliConnected = Boolean(wacliDoctorData?.connected)
 
   return (
     <div className="space-y-8 max-w-3xl">
@@ -341,6 +452,113 @@ export function SettingsClient({ initialSettings, initialCalendarStatus }: Setti
               </Field>
             </div>
           )}
+        </div>
+
+        <div className="rounded-lg border border-line bg-canvas p-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className={wacliAuthenticated ? 'text-success' : 'text-muted'}>
+                  {wacliAuthenticated ? '●' : '○'}
+                </span>
+                <h4 className="font-semibold text-ink">WhatsApp CLI</h4>
+              </div>
+              <div className="mt-2 space-y-1 text-xs text-muted">
+                <p>Binário: {wacliStatus?.installed ? 'instalado' : 'não detectado'}</p>
+                <p>Login: {wacliAuthenticated ? 'autenticado' : 'aguardando QR'}</p>
+                <p>Conexão: {wacliConnected ? 'conectado' : 'offline'}</p>
+                <p>Tool do assistente interno: {wacliStatus?.enabled ? 'habilitada' : 'desabilitada'}</p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => { void refreshWacliStatus() }}
+                className="focus-ring h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted transition hover:text-ink"
+              >
+                Atualizar
+              </button>
+              <button
+                onClick={() => { void startWacliAuth() }}
+                disabled={loadingWacli || Boolean(wacliAuthOutput?.running)}
+                className="focus-ring h-8 rounded-md border border-accent/40 bg-accent/10 px-3 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-60"
+              >
+                {wacliAuthOutput?.running ? 'QR ativo' : 'Gerar QR'}
+              </button>
+              {wacliAuthOutput?.running && (
+                <button
+                  onClick={() => { void stopWacliAuth() }}
+                  className="focus-ring h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted transition hover:text-ink"
+                >
+                  Parar QR
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 border-t border-line pt-4">
+            <Field label="Perfil/store do WhatsApp CLI">
+              <input
+                value={values.wacli_store ?? '/data/wacli'}
+                onChange={e => set('wacli_store', e.target.value)}
+                placeholder="/data/wacli"
+                className="field-input font-mono text-xs"
+              />
+              <span className="text-[11px] text-muted/60">
+                Para trocar o número atendente, use outro caminho, salve tudo e gere um novo QR. Exemplo: /data/wacli-pedro.
+              </span>
+            </Field>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => { void startWacliSync() }}
+                disabled={!wacliAuthenticated || Boolean(wacliSyncOutput?.running) || loadingWacli}
+                className="focus-ring h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted transition hover:text-ink disabled:opacity-50"
+              >
+                {wacliSyncOutput?.running ? 'Sync rodando' : 'Iniciar sync contínuo'}
+              </button>
+              {wacliSyncOutput?.running && (
+                <button
+                  onClick={() => { void stopWacliSync() }}
+                  className="focus-ring h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted transition hover:text-ink"
+                >
+                  Parar sync
+                </button>
+              )}
+              <button
+                onClick={() => { void toggleWacliTool(!wacliStatus?.enabled) }}
+                disabled={!wacliAuthenticated}
+                className={`focus-ring h-8 rounded-md border px-3 text-xs font-semibold transition disabled:opacity-50 ${
+                  wacliStatus?.enabled
+                    ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/20'
+                    : 'border-success/40 bg-success/10 text-success hover:bg-success/20'
+                }`}
+              >
+                {wacliStatus?.enabled ? 'Desabilitar tool' : 'Habilitar tool'}
+              </button>
+            </div>
+
+            <div className="rounded-md border border-line bg-elevated p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted">QR / saída do wacli</span>
+              <button
+                onClick={() => { void refreshWacliAuthOutput() }}
+                className="focus-ring h-7 rounded-md border border-line bg-canvas px-2 text-[11px] text-muted transition hover:text-ink"
+              >
+                Recarregar saída
+              </button>
+              <button
+                onClick={() => setShowWacliQrDialog(true)}
+                className="focus-ring h-7 rounded-md border border-accent/40 bg-accent/10 px-2 text-[11px] font-semibold text-accent transition hover:bg-accent/20"
+              >
+                Abrir QR
+              </button>
+            </div>
+              <pre className="max-h-[260px] overflow-auto whitespace-pre rounded-md bg-black p-3 font-mono text-[5px] leading-none text-white sm:max-h-[360px] sm:text-[7px]">
+                {wacliAuthOutput?.output || 'Clique em "Gerar QR" e escaneie pelo WhatsApp em Aparelhos conectados.'}
+              </pre>
+            </div>
+          </div>
         </div>
       </Section>
 
@@ -616,6 +834,32 @@ export function SettingsClient({ initialSettings, initialCalendarStatus }: Setti
         confirmLabel="Desconectar"
         onConfirm={() => { void disconnectCalendar() }}
       />
+
+      <Dialog.Root open={showWacliQrDialog} onOpenChange={setShowWacliQrDialog}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm" />
+          <Dialog.Content className="fixed inset-x-2 top-1/2 z-50 max-h-[92vh] -translate-y-1/2 rounded-xl border border-line bg-panel p-3 shadow-2xl outline-none sm:inset-x-6 lg:left-1/2 lg:right-auto lg:w-[min(96vw,980px)] lg:-translate-x-1/2">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <Dialog.Title className="text-sm font-semibold text-ink">QR do WhatsApp CLI</Dialog.Title>
+                <Dialog.Description className="mt-1 text-xs text-muted">
+                  Abra o WhatsApp em Aparelhos conectados e escaneie este código.
+                </Dialog.Description>
+              </div>
+              <Dialog.Close asChild>
+                <button className="focus-ring h-8 rounded-md border border-line bg-elevated px-3 text-xs text-muted transition hover:text-ink">
+                  Fechar
+                </button>
+              </Dialog.Close>
+            </div>
+            <div className="max-h-[78vh] overflow-auto rounded-lg bg-black p-2 sm:p-4">
+              <pre className="whitespace-pre font-mono text-[4px] leading-none text-white sm:text-[5px] md:text-[6px] lg:text-[7px]">
+                {wacliAuthOutput?.output || 'QR ainda não carregado. Clique em Gerar QR.'}
+              </pre>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   )
 }

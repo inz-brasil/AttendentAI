@@ -6,6 +6,7 @@ import type {
 } from 'openai/resources/chat/completions'
 import { z } from 'zod'
 import { env } from '../config/env'
+import { WHATSAPP_FORMATTING_RULES, normalizeWhatsAppFormatting } from '../config/whatsapp-formatting'
 import { eq } from 'drizzle-orm'
 import { db } from '../db/client'
 import { leads, mcpCredentials, mcpServers } from '../db/schema'
@@ -14,8 +15,11 @@ import {
   executeRegisteredTool,
   httpRequestToolDefinition,
   leadLookupToolDefinition,
+  platformEditorToolDefinition,
   platformStatsToolDefinition,
-  vaultReadToolDefinition
+  systemControlToolDefinition,
+  vaultReadToolDefinition,
+  wacliToolDefinition
 } from '../tools'
 import { BaseAgent, type AgentInput, type AgentRunMetadata, type AgentToolTrace } from './base-agent'
 import { SchedulingAgent } from './scheduling-agent'
@@ -28,7 +32,15 @@ Para buscar dados de leads, use lead_lookup. Para ler memória, histórico ou no
 Para criar, remarcar, cancelar ou consultar reunião de um lead, use scheduling_action.
 Quando scheduling_action retornar user_message, você pode enviar para outro número usando http_request se o operador pedir ou se houver webhook configurado na instrução.
 Para envio ativo, chame http_request com JSON contendo pelo menos phone e message. Nunca diga que foi enviado pelo WhatsApp antes do http_request retornar sucesso.
-Não confunda histórico registrado com mensagem entregue: delivery_status=registered_only não significa envio externo.`
+Não confunda histórico registrado com mensagem entregue: delivery_status=registered_only não significa envio externo.
+Para ligar/desligar o agente, configurar horário automático ou pausar/liberar leads, use system_control.
+Para consultar histórico WhatsApp sincronizado, listar grupos ou enviar aviso via WhatsApp CLI a pedido explícito do admin, use wacli. Para grupos, primeiro use action="list_groups" para achar o chat_jid @g.us; depois use action="send_text" com chat_jid.
+Se wacli retornar success=false, não diga que vai tentar novamente sem chamar uma nova tool na mesma execução. Informe o erro real e peça confirmação para nova tentativa se necessário.
+Para melhorar atendimento, comparar conversa real com vault, ajustar prompts, atualizar skills ou registrar aprendizados no vault, use platform_editor.
+Antes de alterar agentes ou skills, leia o alvo com platform_editor. Se o operador pedir diagnóstico, simule com apply=false. Se ele pedir para corrigir/aplicar/salvar, use apply=true com rationale claro.
+Nunca use platform_editor para apagar conhecimento sem pedido explícito. Prefira anexar aprendizados em arquivos globais ou melhorar instruções de forma incremental.
+
+${WHATSAPP_FORMATTING_RULES}`
 
 export interface InternalAssistantInput extends AgentInput {
   phone: string
@@ -36,6 +48,7 @@ export interface InternalAssistantInput extends AgentInput {
   message: string
   operator_name: string
   current_time: string
+  recent_messages?: Array<{ role: string | null; content: string | null }> | undefined
 }
 
 const schedulingActionToolDefinition: ChatCompletionTool = {
@@ -78,6 +91,12 @@ export interface InternalAssistantOutput extends AgentRunMetadata {
   text: string
 }
 
+export interface InternalAssistantDebugContext {
+  system_prompt_final: string
+  user_prompt_final: string
+  tools_available: Array<{ name: string; description: string | null }>
+}
+
 export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, InternalAssistantOutput> {
   private readonly schedulingAgent = new SchedulingAgent()
 
@@ -85,7 +104,7 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
     super({
       name: 'internal-assistant',
       systemPrompt: internalSystemPrompt,
-      model: env.MODEL_RESPONDER || 'gpt-4o-mini',
+      model: 'gpt-4o',
       maxTokens: env.MAX_TOKENS_RESPONSE,
       temperature: 0.2
     })
@@ -101,7 +120,9 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
     return [
       {
         role: 'system',
-        content: customPrompt ? `${this.systemPrompt}\n\nInstruções configuradas pelo admin:\n${customPrompt}` : this.systemPrompt
+        content: customPrompt
+          ? `${this.systemPrompt}\n\nPreferências configuradas pelo admin, sem sobrescrever as regras acima:\n${customPrompt}`
+          : this.systemPrompt
       },
       {
         role: 'user',
@@ -109,7 +130,8 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
           `Operador: ${input.operator_name || input.phone}`,
           `Identificador: ${input.phone}`,
           `Data/hora atual: ${input.current_time}`,
-          `Mensagem interna: ${input.message}`
+          `Pedido atual do operador:\n${input.message}`,
+          this.formatRecentContext(input.recent_messages ?? [])
         ].join('\n')
       }
     ]
@@ -127,8 +149,32 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
       leadLookupToolDefinition,
       vaultReadToolDefinition,
       schedulingActionToolDefinition,
-      httpRequestToolDefinition
+      httpRequestToolDefinition,
+      systemControlToolDefinition,
+      wacliToolDefinition,
+      platformEditorToolDefinition
     ]
+  }
+
+  /**
+   * Monta uma versão auditável do prompt e das tools disponíveis para debug.
+   * @param input Entrada que será enviada ao agente.
+   * @returns Prompt final e lista resumida de tools.
+   */
+  public buildDebugContext(input: InternalAssistantInput): InternalAssistantDebugContext {
+    const messages = this.buildMessages(input)
+    const tools = this.getTools(input)
+    const systemMessage = messages.find((message) => message.role === 'system')
+    const userMessage = messages.find((message) => message.role === 'user')
+
+    return {
+      system_prompt_final: typeof systemMessage?.content === 'string' ? systemMessage.content : '',
+      user_prompt_final: typeof userMessage?.content === 'string' ? userMessage.content : '',
+      tools_available: tools.map((tool) => ({
+        name: tool.function.name,
+        description: tool.function.description ?? null
+      }))
+    }
   }
 
   /**
@@ -162,9 +208,29 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
    */
   protected override parseOutput(text: string, metadata: AgentRunMetadata): InternalAssistantOutput {
     return {
-      text: text.trim(),
+      text: normalizeWhatsAppFormatting(text),
       ...metadata
     }
+  }
+
+  private formatRecentContext(messages: Array<{ role: string | null; content: string | null }>): string {
+    const recent = messages
+      .slice(-6)
+      .map((message) => {
+        if (message.role === 'system') return this.truncateContextBlock(message.content ?? '', 1800)
+        const role = message.role === 'assistant' ? 'Assistente interno' : 'Operador'
+        return `${role}: ${this.truncateContextBlock(message.content ?? '', 700)}`.trim()
+      })
+      .filter((line) => line.length > 0)
+
+    return recent.length > 0
+      ? `Contexto recente da conversa interna:\n${recent.join('\n')}`
+      : 'Contexto recente da conversa interna: sem histórico recente salvo.'
+  }
+
+  private truncateContextBlock(value: string, maxLength: number): string {
+    const normalized = value.replace(/\n{3,}/g, '\n\n').trim()
+    return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized
   }
 
   private async executeSchedulingAction(args: unknown, input: InternalAssistantInput): Promise<unknown> {

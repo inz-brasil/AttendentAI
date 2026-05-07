@@ -31,7 +31,14 @@ COPY drizzle.config.ts ./
 # RUN bun tsc --noEmit
 
 # ────────────────────────────────────────────────────────────────
-# Estágio 2: runner — imagem mínima de produção
+# Estágio 2: wacli-builder — compila o WhatsApp CLI usado por tools internas
+# ────────────────────────────────────────────────────────────────
+FROM golang:1.25-bookworm AS wacli-builder
+
+RUN go install -tags sqlite_fts5 github.com/steipete/wacli/cmd/wacli@v0.6.0
+
+# ────────────────────────────────────────────────────────────────
+# Estágio 3: runner — imagem mínima de produção
 # ────────────────────────────────────────────────────────────────
 FROM oven/bun:1-debian AS runner
 
@@ -39,21 +46,27 @@ WORKDIR /app
 
 USER root
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copiar dependências e código do builder
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/tsconfig.json ./
 COPY --from=builder /app/drizzle.config.ts ./
+COPY --from=wacli-builder /go/bin/wacli /usr/local/bin/wacli
 
 # Criar diretórios de dados com permissões corretas
-RUN mkdir -p /data /vault
+RUN mkdir -p /data /data/wacli /vault
 
 # Variáveis de ambiente sem valores default para secrets
 ENV NODE_ENV=production
 ENV PORT=3001
 ENV VAULT_PATH=/vault
 ENV DATABASE_URL=file:/data/db.sqlite
+ENV WACLI_STORE_DIR=/data/wacli
 
 # Porta exposta para o EasyPanel mapear
 EXPOSE 3001

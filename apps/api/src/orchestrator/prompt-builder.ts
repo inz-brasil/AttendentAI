@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import pino from 'pino'
 import { MCP_ENABLED } from '../config/constants'
 import { env } from '../config/env'
+import { WHATSAPP_FORMATTING_RULES } from '../config/whatsapp-formatting'
 import { db } from '../db/client'
 import { agents, settings } from '../db/schema'
 import { SkillsLoader } from '../skills/loader'
@@ -122,8 +123,8 @@ export class PromptBuilder {
       .replace(/{lead_phone}/g, input.lead.phone)
       .replace(/{current_date}/g, input.lead.currentTime)
       .replace(/{current_time}/g, input.lead.currentTime)
-      .replace(/{history_summary}/g, input.memory.history_summary || 'sem histórico')
-      .replace(/{vault_context}/g, input.vaultContext || 'sem contexto relevante')
+      .replace(/{history_summary}/g, 'ver CAMADA 3 — DADOS DO LEAD ATUAL')
+      .replace(/{vault_context}/g, 'ver CAMADA 3 — DADOS DO LEAD ATUAL')
   }
 
   private extractInterest(leadSummary: string, vaultContext: string): string {
@@ -160,7 +161,7 @@ Empresa: ${input.companyName}
 Tom e estilo: ${input.agentTone}
 
 Contexto global aprovado:
-${input.globalContext || 'sem contexto global cadastrado'}
+${this.truncateBlock(input.globalContext || 'sem contexto global cadastrado', 3500)}
 
 ${antiHallucinationRules}`
   }
@@ -191,13 +192,13 @@ Estágio: ${input.lead.status ?? 'não informado'}
 Tags: ${input.lead.tags?.join(', ') || 'sem tags'}
 
 Resumo histórico:
-${input.memory.history_summary || 'sem histórico sumarizado'}
+${this.truncateBlock(input.memory.history_summary || 'sem histórico sumarizado', 2500)}
 
 Notas relevantes:
-${input.memory.notes_summary || 'sem notas relevantes'}
+${this.truncateBlock(input.memory.notes_summary || 'sem notas relevantes', 1800)}
 
 Contexto relevante do vault:
-${input.vaultContext || 'sem contexto relevante'}`
+${this.truncateBlock(input.vaultContext || 'sem contexto relevante', 3500)}`
   }
 
   /**
@@ -221,8 +222,9 @@ Nenhuma ferramenta MCP registrada para este agente no momento.`
   private buildOutputLayer(httpToolEnabled: string): string {
     return `CAMADA 5 — INSTRUÇÃO DE SAÍDA
 Responda APENAS com o texto da mensagem final.
+${WHATSAPP_FORMATTING_RULES}
 Siga a formatação, ordem de atendimento e restrições definidas no prompt configurado do agente.
-Não use markdown, bullets ou headers quando o prompt configurado proibir; quando ele permitir, use apenas os formatos permitidos nele.
+Não use markdown de documento, bullets com asterisco ou headers com #.
 ${httpToolEnabled === 'true' ? 'Use a tool http_request quando houver webhook/API e dados confirmados para executar uma ação externa.' : 'Tools externas estão desativadas para este agente no momento.'}
 Faça no máximo UMA pergunta direta na resposta final.
 Se houver duas perguntas possíveis, escolha a mais importante para avançar a conversa agora.
@@ -260,5 +262,10 @@ Máximo 3 parágrafos`
       content: contents.filter(Boolean).join('\n\n'),
       files
     }
+  }
+
+  private truncateBlock(value: string, maxLength: number): string {
+    const normalized = value.replace(/\n{3,}/g, '\n\n').trim()
+    return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized
   }
 }

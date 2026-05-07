@@ -155,6 +155,51 @@ const defaultSettings = [
     key: 'tool_http_enabled',
     value: 'false',
     description: 'Habilita a tool http_request para o agente respondedor'
+  },
+  {
+    key: 'automation_enabled',
+    value: 'true',
+    description: 'Liga/desliga respostas automáticas do agente principal'
+  },
+  {
+    key: 'automation_schedule_enabled',
+    value: 'false',
+    description: 'Quando true, o bot só responde dentro da janela configurada'
+  },
+  {
+    key: 'automation_schedule_start',
+    value: '18:00',
+    description: 'Início da janela em que o bot pode responder automaticamente'
+  },
+  {
+    key: 'automation_schedule_end',
+    value: '09:00',
+    description: 'Fim da janela em que o bot pode responder automaticamente'
+  },
+  {
+    key: 'automation_schedule_timezone',
+    value: 'America/Sao_Paulo',
+    description: 'Timezone usado para janela de atendimento automático'
+  },
+  {
+    key: 'automation_blacklist_default_minutes',
+    value: '120',
+    description: 'Duração padrão da pausa automática quando humano assume'
+  },
+  {
+    key: 'wacli_enabled',
+    value: 'false',
+    description: 'Habilita tool wacli para assistente interno'
+  },
+  {
+    key: 'wacli_command',
+    value: '/usr/local/bin/wacli',
+    description: 'Binário/comando wacli disponível no container da API'
+  },
+  {
+    key: 'wacli_store',
+    value: '/data/wacli',
+    description: 'Diretório opcional do store wacli; vazio usa padrão do wacli'
   }
 ]
 

@@ -4,6 +4,7 @@ import pino from 'pino'
 import { ClassifierAgent } from '../agents/classifier'
 import { MCP_ENABLED } from '../config/constants'
 import { env } from '../config/env'
+import { normalizeWhatsAppFormatting } from '../config/whatsapp-formatting'
 import { IdentifierAgent, type LeadFieldsToUpdate } from '../agents/identifier'
 import { InternalAssistantAgent } from '../agents/internal-assistant'
 import { MemoryAgent } from '../agents/memory-agent'
@@ -27,6 +28,7 @@ import { recordTrace, truncateTraceText } from '../monitoring/trace-recorder'
 import { MCPRegistry } from '../mcp/registry'
 import { acquirePhoneLock, releasePhoneLock, waitForPhoneLockRelease } from '../queue/redis'
 import { SkillsLoader } from '../skills/loader'
+import { syncWacliChatContext } from '../wacli/context-sync'
 import { broadcast } from '../websocket/server'
 import { PromptBuilder } from './prompt-builder'
 
@@ -128,8 +130,29 @@ export class QueryEngine {
       }
     })
     const runtimeContext = this.resolveRuntimeContext(payload)
+    const wacliContext = await syncWacliChatContext(
+      payload.phone,
+      this.getStringContactField(payload.contact_info, 'remoteJid') ?? payload.session_id,
+      payload.name
+    )
+    if (wacliContext.available) {
+      await recordTrace({
+        phone: payload.phone,
+        runId,
+        agent: 'wacli-sync',
+        eventType: 'wacli_context_loaded',
+        title: 'Histórico real do WhatsApp sincronizado',
+        data: {
+          chat_jid: wacliContext.chat_jid,
+          chat_name: wacliContext.chat_name,
+          messages_count: wacliContext.messages_count,
+          context_preview: truncateTraceText(wacliContext.context, 1000),
+          prompt_context_preview: truncateTraceText(wacliContext.prompt_context, 1000)
+        }
+      })
+    }
     if (await this.isInternalAssistantContact(payload)) {
-      return this.processInternalAssistant(payload, runtimeContext, startedAt, runId)
+      return this.processInternalAssistant(payload, runtimeContext, startedAt, runId, wacliContext.prompt_context)
     }
 
     const lead = await getOrCreateLead(payload.phone, payload.name, payload.contact_info)
@@ -262,6 +285,14 @@ export class QueryEngine {
         prompt_chars: promptBuild.promptChars,
         system_prompt_final: promptBuild.prompt,
         live_summary: liveSummary,
+        responder_runtime: {
+          current_message: truncateTraceText(payload.message, 500),
+          recent_messages_count: refreshedMemory.recent_messages.length,
+          recent_messages_preview: refreshedMemory.recent_messages.slice(-4).map((message) => ({
+            role: message.role,
+            content_preview: truncateTraceText(message.content ?? '', 350)
+          }))
+        },
         skills: promptBuild.skills,
         skill_router: routedSkills,
         global_vault_files: promptBuild.globalFiles,
@@ -480,7 +511,7 @@ export class QueryEngine {
   }
 
   private normalizeWhatsAppResponse(text: string): string {
-    return text.replace(/—/g, '-')
+    return normalizeWhatsAppFormatting(text)
   }
 
   private async loadSkillCandidates(agentId: string): Promise<SkillCandidate[]> {
@@ -560,7 +591,7 @@ export class QueryEngine {
     intent: string,
     message: string,
     liveSummary: string,
-    recentMessages: Array<{ role: 'user' | 'assistant' | null; content: string | null }>
+    recentMessages: Array<{ role: string | null; content: string | null }>
   ): boolean {
     const normalized = message.toLowerCase()
     const context = [
@@ -623,7 +654,7 @@ export class QueryEngine {
     currentTime: string
     timezone: string
     historySummary: string
-    recentMessages: Array<{ role: 'user' | 'assistant' | null; content: string | null }>
+    recentMessages: Array<{ role: string | null; content: string | null }>
   }): Promise<SchedulingAgentOutput | null> {
     const server = await this.loadConnectedGoogleCalendarServer()
     if (!server) {
@@ -737,7 +768,7 @@ export class QueryEngine {
   ): string {
     const previous = recentMessages
       .slice(-6)
-      .map((message) => `${message.role === 'assistant' ? 'Assistente' : 'Lead'}:\n${message.content ?? ''}`)
+      .map((message) => `${this.formatConversationRole(message.role)}:\n${message.content ?? ''}`)
       .filter((line) => line.trim().length > 0)
 
     const currentMessage = payload.message.trim()
@@ -774,13 +805,22 @@ export class QueryEngine {
     return 'Origem provável: não identificada pelos dados recebidos.'
   }
 
+  private formatConversationRole(role: string | null): string {
+    if (role === 'assistant') return 'Assistente'
+    if (role === 'human_agent') return 'Atendente humano'
+    if (role === 'system') return 'Sistema'
+    return 'Lead'
+  }
+
   private async processInternalAssistant(
     payload: WebhookPayload,
     runtimeContext: { currentTime: string; timezone: string },
     startedAt: number,
-    runId: string
+    runId: string,
+    wacliPromptContext: string
   ): Promise<WebhookResponse> {
     const systemPrompt = await this.getInternalAssistantPrompt()
+    const memory = await loadMemory(payload.phone)
     await recordTrace({
       phone: payload.phone,
       runId,
@@ -793,14 +833,43 @@ export class QueryEngine {
         current_time: runtimeContext.currentTime
       }
     })
-    const response = await this.internalAssistant.run({
+    await saveMessage(payload.phone, 'user', payload.message, {
+      message_type: payload.message_type,
+      intent: 'internal',
+      agent_used: 'internal-operator'
+    })
+
+    const internalInput = {
       phone: payload.phone,
       run_id: runId,
       system_prompt: systemPrompt,
       message: payload.message,
       operator_name: payload.name,
-      current_time: runtimeContext.currentTime
+      current_time: runtimeContext.currentTime,
+      recent_messages: [
+        ...memory.recent_messages,
+        ...(wacliPromptContext ? [{ role: 'system', content: wacliPromptContext }] : [])
+      ]
+    }
+    const debugContext = this.internalAssistant.buildDebugContext(internalInput)
+    await recordTrace({
+      phone: payload.phone,
+      runId,
+      agent: 'internal-assistant',
+      eventType: 'prompt_built',
+      title: 'Prompt interno montado',
+      data: {
+        system_prompt_final: debugContext.system_prompt_final,
+        user_prompt_final: debugContext.user_prompt_final,
+        system_prompt_chars: debugContext.system_prompt_final.length,
+        user_prompt_chars: debugContext.user_prompt_final.length,
+        recent_messages_count: memory.recent_messages.length,
+        wacli_context_chars: wacliPromptContext.length,
+        tools_available: debugContext.tools_available
+      }
     })
+
+    const response = await this.internalAssistant.run(internalInput)
     await recordTrace({
       phone: payload.phone,
       runId,
@@ -809,11 +878,28 @@ export class QueryEngine {
       title: 'Resposta interna gerada',
       data: {
         response_preview: truncateTraceText(response.text, 800),
+        response_full: response.text,
+        response_chars: response.text.length,
         tokens_used: response.tokens_used,
         duration_ms: response.duration_ms,
         model: response.model,
-        tools_used: response.tool_trace.map((trace) => trace.tool)
+        tools_used: response.tool_trace.map((trace) => trace.tool),
+        tool_trace_summary: response.tool_trace.map((trace) => ({
+          tool: trace.tool,
+          duration_ms: trace.duration_ms,
+          arguments_preview: truncateTraceText(JSON.stringify(trace.arguments), 1200),
+          result_preview: truncateTraceText(JSON.stringify(trace.result), 1800)
+        }))
       }
+    })
+
+    const guardedText = this.normalizeWhatsAppResponse(response.text)
+    await saveMessage(payload.phone, 'assistant', guardedText, {
+      message_type: 'text',
+      intent: 'internal',
+      tokens_used: response.tokens_used,
+      agent_used: 'internal-assistant',
+      processing_ms: response.duration_ms
     })
 
     broadcast({
@@ -821,7 +907,7 @@ export class QueryEngine {
       phone: payload.phone,
       name: payload.name,
       message: payload.message,
-      response: response.text,
+      response: guardedText,
       agent: 'internal-assistant',
       intent: 'internal',
       timestamp: new Date().toISOString()
@@ -842,7 +928,7 @@ export class QueryEngine {
 
     return {
       success: true,
-      message: response.text,
+      message: guardedText,
       audio_requested: false,
       metadata: {
         lead_id: payload.phone,

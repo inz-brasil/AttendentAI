@@ -56,7 +56,7 @@ export interface SchedulingAgentInput extends AgentInput {
   timezone: string
   history_summary: string
   recent_messages: Array<{
-    role: 'user' | 'assistant' | null
+    role: string | null
     content: string | null
   }>
   mcp_server_id: string
@@ -97,7 +97,7 @@ export class SchedulingAgent extends BaseAgent<SchedulingAgentInput, SchedulingA
     const recent = input.recent_messages
       .filter((message) => message.role && message.content?.trim())
       .slice(-10)
-      .map((message) => `${message.role === 'assistant' ? 'Assistente' : 'Lead'}: ${message.content ?? ''}`)
+      .map((message) => `${message.role === 'assistant' || message.role === 'human_agent' ? 'Assistente/Humano' : 'Lead'}: ${message.content ?? ''}`)
       .join('\n')
 
     return [

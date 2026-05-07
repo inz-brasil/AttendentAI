@@ -1,8 +1,17 @@
 // webhook.ts — Recebe webhooks do n8n e valida payloads do WhatsApp
+import { and, desc, eq, gte } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
+import {
+  activateAutomationBlacklist,
+  canReplyAutomatically,
+  getSettingValue
+} from '../automation/control'
 import { WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE } from '../config/constants'
 import { env } from '../config/env'
+import { db } from '../db/client'
+import { messages } from '../db/schema'
+import { getOrCreateLead, saveMessage } from '../memory/persistent'
 import { enforcePhoneRateLimit } from '../rate-limit'
 import { enqueueMessage } from '../queue/message-queue'
 import { PhoneLockedError, QueryEngine } from '../orchestrator'
@@ -31,7 +40,30 @@ const webhookQuerySchema = z.object({
   sync: z.enum(['true', 'false']).optional()
 })
 
+const evolutionPayloadSchema = webhookPayloadSchema.extend({
+  event: z
+    .object({
+      source: z.string().optional(),
+      sender_type: z.string().optional(),
+      from_me: z.boolean().optional(),
+      message_id: z.string().nullable().optional(),
+      quoted_message_id: z.string().nullable().optional(),
+      remote_jid: z.string().nullable().optional(),
+      instance: z.string().nullable().optional(),
+      instance_id: z.string().nullable().optional(),
+      raw_message_type: z.string().nullable().optional(),
+      processed_type: z.string().nullable().optional(),
+      media_url: z.string().nullable().optional(),
+      chatwoot_conversation_id: z.number().nullable().optional(),
+      chatwoot_inbox_id: z.number().nullable().optional(),
+      chatwoot_message_id: z.number().nullable().optional()
+    })
+    .catchall(z.unknown())
+    .optional()
+})
+
 type WebhookPayload = z.infer<typeof webhookPayloadSchema>
+type EvolutionPayload = z.infer<typeof evolutionPayloadSchema>
 
 function validateAuth(request: FastifyRequest): boolean {
   return request.headers.authorization === `Bearer ${env.WEBHOOK_SECRET}`
@@ -99,4 +131,273 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
       throw error
     }
   })
+
+  app.post('/api/webhook/evolution', async (request, reply) => {
+    if (!validateAuth(request)) {
+      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' })
+    }
+
+    const parsed = evolutionPayloadSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: 'Invalid webhook payload',
+        code: 'INVALID_PAYLOAD',
+        details: parsed.error.issues
+      })
+    }
+
+    const payload = normalizeEvolutionPayload(parsed.data)
+    const allowed = await enforcePhoneRateLimit(request, reply, payload.phone, WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE)
+    if (!allowed) {
+      return reply
+    }
+
+    if (payload.event?.from_me === true || payload.contact_info?.from_me === true) {
+      return handleOutboundEvolutionEvent(payload)
+    }
+
+    if (await isLikelyWacliSelfEcho(payload)) {
+      await recordTrace({
+        phone: payload.phone,
+        agent: 'automation-control',
+        eventType: 'wacli_self_echo_ignored',
+        title: 'Eco de envio WACLI ignorado',
+        data: {
+          message_preview: payload.message.slice(0, 300),
+          remote_jid: payload.event?.remote_jid ?? payload.contact_info?.remoteJid
+        }
+      })
+      return {
+        success: true,
+        should_reply: false,
+        action: 'record_only',
+        reason: 'wacli_self_echo',
+        message: ''
+      }
+    }
+
+    if (await isInternalAssistantContact(payload)) {
+      try {
+        const response = await queryEngine.process(payload)
+        return {
+          ...response,
+          should_reply: Boolean(response.message),
+          action: 'reply',
+          reason: 'internal_assistant'
+        }
+      } catch (error) {
+        if (error instanceof PhoneLockedError) {
+          return reply.code(429).send({ error: 'Mensagem anterior ainda processando', code: 'PHONE_LOCKED' })
+        }
+
+        throw error
+      }
+    }
+
+    const decision = await canReplyAutomatically(payload.phone)
+    if (!decision.allowed) {
+      await getOrCreateLead(payload.phone, payload.name, payload.contact_info)
+      await saveMessage(payload.phone, 'user', payload.message, {
+        message_type: payload.message_type,
+        intent: decision.reason,
+        agent_used: 'automation-control'
+      })
+      await recordTrace({
+        phone: payload.phone,
+        agent: 'automation-control',
+        eventType: 'auto_reply_blocked',
+        title: 'Mensagem registrada sem resposta automática',
+        data: {
+          reason: decision.reason,
+          schedule: decision.schedule,
+          blacklist: decision.blacklist,
+          message_preview: payload.message.slice(0, 300)
+        }
+      })
+      return {
+        success: true,
+        should_reply: false,
+        action: 'record_only',
+        reason: decision.reason,
+        message: '',
+        audio_requested: false,
+        blacklist: decision.blacklist,
+        schedule: decision.schedule,
+        metadata: {
+          lead_id: payload.phone,
+          agent_used: 'automation-control',
+          tokens_used: 0,
+          processing_ms: 0
+        }
+      }
+    }
+
+    try {
+      const response = await queryEngine.process(payload)
+      return {
+        ...response,
+        should_reply: Boolean(response.message),
+        action: 'reply',
+        reason: 'allowed',
+        blacklist: decision.blacklist,
+        schedule: decision.schedule
+      }
+    } catch (error) {
+      if (error instanceof PhoneLockedError) {
+        return reply.code(429).send({ error: 'Mensagem anterior ainda processando', code: 'PHONE_LOCKED' })
+      }
+
+      throw error
+    }
+  })
+}
+
+async function handleOutboundEvolutionEvent(payload: EvolutionPayload): Promise<Record<string, unknown>> {
+  await getOrCreateLead(payload.phone, payload.name, payload.contact_info)
+  const source = await inferOutboundSource(payload)
+
+  if (source === 'bot') {
+    await recordTrace({
+      phone: payload.phone,
+      agent: 'automation-control',
+      eventType: 'outbound_bot_seen',
+      title: 'Mensagem enviada pelo bot registrada pela Evolution',
+      data: {
+        message_id: payload.event?.message_id,
+        message_preview: payload.message.slice(0, 300)
+      }
+    })
+    return {
+      success: true,
+      should_reply: false,
+      action: 'record_only',
+      reason: 'bot_outbound_seen',
+      message: ''
+    }
+  }
+
+  await saveMessage(payload.phone, 'human_agent', payload.message, {
+    message_type: payload.message_type,
+    intent: 'human_takeover',
+    agent_used: 'human-agent'
+  })
+  const blacklist = await activateAutomationBlacklist(payload.phone, 'human_takeover', 'evolution')
+  await recordTrace({
+    phone: payload.phone,
+    agent: 'automation-control',
+    eventType: 'human_takeover_detected',
+    title: 'Atendimento humano detectado',
+    data: {
+      message_id: payload.event?.message_id,
+      message_preview: payload.message.slice(0, 300),
+      blacklist_expires_at: blacklist.expires_at
+    }
+  })
+
+  return {
+    success: true,
+    should_reply: false,
+    action: 'record_only',
+    reason: 'human_takeover',
+    message: '',
+    blacklist: {
+      active: true,
+      reason: 'human_takeover',
+      expires_at: blacklist.expires_at
+    }
+  }
+}
+
+function normalizeEvolutionPayload(payload: EvolutionPayload): EvolutionPayload {
+  const phone = payload.phone.replace(/\D/g, '') || payload.phone
+  return {
+    ...payload,
+    phone,
+    contact_info: {
+      ...(payload.contact_info ?? {}),
+      from_me: payload.event?.from_me ?? payload.contact_info?.from_me,
+      sender_type: payload.event?.sender_type ?? payload.contact_info?.sender_type,
+      remoteJid: payload.event?.remote_jid ?? payload.contact_info?.remoteJid,
+      instancia: payload.event?.instance ?? payload.contact_info?.instancia,
+      instance_id: payload.event?.instance_id ?? payload.contact_info?.instance_id,
+      chatwoot_conversation_id: payload.event?.chatwoot_conversation_id ?? payload.contact_info?.chatwoot_conversation_id,
+      chatwoot_inbox_id: payload.event?.chatwoot_inbox_id ?? payload.contact_info?.chatwoot_inbox_id,
+      chatwoot_message_id: payload.event?.chatwoot_message_id ?? payload.contact_info?.chatwoot_message_id
+    }
+  }
+}
+
+async function inferOutboundSource(payload: EvolutionPayload): Promise<'bot' | 'human_agent'> {
+  const senderType = payload.event?.sender_type ?? String(payload.contact_info?.sender_type ?? '')
+  if (senderType === 'bot') return 'bot'
+  if (senderType === 'human_agent') return 'human_agent'
+
+  const recentWindow = new Date(Date.now() - 10 * 60_000)
+  const recentAssistantMessages = await db
+    .select({ content: messages.content })
+    .from(messages)
+    .where(and(eq(messages.lead_phone, payload.phone), eq(messages.role, 'assistant'), gte(messages.created_at, recentWindow)))
+    .orderBy(desc(messages.created_at))
+    .limit(10)
+  const normalizedPayload = normalizeText(payload.message)
+  const matchedBotMessage = recentAssistantMessages.some((message) => normalizeText(message.content ?? '') === normalizedPayload)
+  return matchedBotMessage ? 'bot' : 'human_agent'
+}
+
+async function isLikelyWacliSelfEcho(payload: EvolutionPayload): Promise<boolean> {
+  if (!(await isInternalAssistantContact(payload))) {
+    return false
+  }
+
+  const recentWindow = new Date(Date.now() - 10 * 60_000)
+  const recentWacliMessages = await db
+    .select({ content: messages.content })
+    .from(messages)
+    .where(and(
+      eq(messages.lead_phone, payload.phone),
+      eq(messages.role, 'assistant'),
+      eq(messages.agent_used, 'internal-assistant-wacli'),
+      gte(messages.created_at, recentWindow)
+    ))
+    .orderBy(desc(messages.created_at))
+    .limit(10)
+
+  const normalizedPayload = normalizeText(payload.message)
+  return recentWacliMessages.some((message) => normalizeText(message.content ?? '') === normalizedPayload)
+}
+
+function normalizeText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+async function isInternalAssistantContact(payload: EvolutionPayload): Promise<boolean> {
+  const raw = await getSettingValue('internal_assistant_contacts', '')
+  const contacts = parseContactList(raw)
+  if (contacts.length === 0) return false
+
+  const identifiers = [
+    payload.phone,
+    payload.session_id,
+    String(payload.contact_info?.remoteJid ?? ''),
+    String(payload.contact_info?.jid ?? ''),
+    String(payload.event?.remote_jid ?? '')
+  ].filter((item): item is string => typeof item === 'string' && item.length > 0)
+
+  return identifiers.some((identifier) => contacts.includes(identifier))
+}
+
+function parseContactList(raw: string): string[] {
+  const trimmed = raw.trim()
+  if (!trimmed) return []
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    }
+  } catch {
+    // Também aceita lista simples.
+  }
+
+  return trimmed.split(/[\n,;]/).map((item) => item.trim()).filter(Boolean)
 }

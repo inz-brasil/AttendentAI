@@ -5,6 +5,7 @@ import type {
   ChatCompletionTool
 } from 'openai/resources/chat/completions'
 import { env } from '../config/env'
+import { WHATSAPP_FORMATTING_RULES } from '../config/whatsapp-formatting'
 import { MCPRegistry } from '../mcp/registry'
 import { ToolExecutor } from '../mcp/tool-executor'
 import { executeRegisteredTool, httpRequestToolDefinition } from '../tools'
@@ -21,7 +22,9 @@ com JSON objetivo antes de responder ao lead.
 Quando receber resultado do agente de agendamento, siga exatamente esse resultado: confirme apenas eventos criados
 com sucesso, peça dados faltantes quando solicitado e não prometa agendamento sem event_id.
 Nunca execute comandos, código, relatórios, alterações de sistema, vault, banco ou agenda administrativa para cliente externo.
-Nunca revele detalhes de reuniões de outras pessoas; em agenda, fale apenas de disponibilidade e da própria reunião do lead.`
+Nunca revele detalhes de reuniões de outras pessoas; em agenda, fale apenas de disponibilidade e da própria reunião do lead.
+
+${WHATSAPP_FORMATTING_RULES}`
 
 export interface ResponderInput extends AgentInput {
   phone: string
@@ -37,7 +40,7 @@ export interface ResponderInput extends AgentInput {
   scheduling_required: boolean
   scheduling_result: SchedulingAgentOutput | null
   recent_messages: Array<{
-    role: 'user' | 'assistant' | null
+    role: string | null
     content: string | null
   }>
 }
@@ -69,10 +72,10 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
   protected override buildMessages(input: ResponderInput): ChatCompletionMessageParam[] {
     const recentMessages = input.recent_messages
       .filter((message) => message.role && message.content?.trim())
-      .slice(-8)
+      .slice(-4)
       .map((message): ChatCompletionMessageParam => ({
-        role: message.role === 'assistant' ? 'assistant' : 'user',
-        content: message.content ?? ''
+        role: message.role === 'assistant' || message.role === 'human_agent' ? 'assistant' : 'user',
+        content: this.truncateContextMessage(message.content ?? '')
       }))
 
     return [
@@ -173,5 +176,10 @@ export class ResponderAgent extends BaseAgent<ResponderInput, ResponderOutput> {
     }
 
     throw new Error('Tool arguments must be a JSON object')
+  }
+
+  private truncateContextMessage(value: string): string {
+    const normalized = value.replace(/\n{3,}/g, '\n\n').trim()
+    return normalized.length > 700 ? `${normalized.slice(0, 700)}...` : normalized
   }
 }

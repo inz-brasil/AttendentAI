@@ -246,6 +246,14 @@ export const mcpCredentials = sqliteTable('mcp_credentials', {
   updated_at: integer('updated_at', { mode: 'timestamp_ms' }).defaultNow()
 })
 
+export const automationBlacklist = sqliteTable('automation_blacklist', {
+  phone: text('phone').primaryKey().references(() => leads.phone),
+  reason: text('reason').default('human_takeover'),
+  source: text('source').default('system'),
+  expires_at: integer('expires_at', { mode: 'timestamp_ms' }),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).defaultNow(),
+  updated_at: integer('updated_at', { mode: 'timestamp_ms' }).defaultNow()
+})
 
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),

@@ -10,6 +10,7 @@ import { closeDb } from './db/client'
 import { registerAgentRoutes } from './routes/agents'
 import { registerAgentSkillRoutes } from './routes/agent-skills'
 import { registerConversationRoutes } from './routes/conversations'
+import { registerAutomationRoutes } from './routes/automation'
 import { registerHealthRoutes } from './routes/health'
 import { registerLeadRoutes } from './routes/leads'
 import { registerMcpRoutes } from './routes/mcp'
@@ -18,6 +19,7 @@ import { registerSettingRoutes } from './routes/settings'
 import { registerSkillRoutes } from './routes/skills'
 import { registerTraceRoutes } from './routes/traces'
 import { registerVaultRoutes } from './routes/vault'
+import { registerWacliRoutes } from './routes/wacli'
 import { registerWebhookRoutes } from './routes/webhook'
 import { registerGoogleCalendarMcpServer } from './mcp-servers/google-calendar'
 import { registerMockMcpServer } from './mcp-servers/mock'
@@ -114,6 +116,7 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
   await registerHealthRoutes(app)
   await registerWebSocketServer(app)
   await registerWebhookRoutes(app)
+  await registerAutomationRoutes(app)
   await registerLeadRoutes(app)
   await registerConversationRoutes(app)
   await registerAgentRoutes(app)
@@ -122,6 +125,7 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
   await registerSettingRoutes(app)
   await registerVaultRoutes(app)
   await registerTraceRoutes(app)
+  await registerWacliRoutes(app)
   await registerPlaygroundRoutes(app)
   await registerMcpRoutes(app)
   await registerMockMcpServer(app)

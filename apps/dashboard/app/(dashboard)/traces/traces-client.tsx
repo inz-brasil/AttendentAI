@@ -57,7 +57,17 @@ function stringifyData(data: Record<string, unknown> | null): string {
 }
 
 function getPrompt(data: Record<string, unknown> | null): string {
-  return typeof data?.system_prompt_final === 'string' ? data.system_prompt_final : ''
+  const sections: string[] = []
+  if (typeof data?.system_prompt_final === 'string') {
+    sections.push(`SYSTEM PROMPT\n\n${data.system_prompt_final}`)
+  }
+  if (typeof data?.user_prompt_final === 'string') {
+    sections.push(`USER PROMPT\n\n${data.user_prompt_final}`)
+  }
+  if (Array.isArray(data?.tools_available)) {
+    sections.push(`TOOLS DISPONÍVEIS\n\n${JSON.stringify(data.tools_available, null, 2)}`)
+  }
+  return sections.join('\n\n────────────────────────\n\n')
 }
 
 /**
