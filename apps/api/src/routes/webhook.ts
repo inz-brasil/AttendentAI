@@ -17,6 +17,7 @@ import { enqueueMessage } from '../queue/message-queue'
 import { PhoneLockedError, QueryEngine } from '../orchestrator'
 import { recordTrace } from '../monitoring/trace-recorder'
 import { traceEmitter } from '../observability/trace-emitter'
+import { TranscriptIngestor } from '../transcript/ingestor'
 import {
   normalizeEvolutionRawPayload,
   rawEvolutionPayloadSchema,
@@ -144,6 +145,7 @@ function readString(source: Record<string, unknown> | null, key: string): string
  */
 export async function registerWebhookRoutes(app: FastifyInstance): Promise<void> {
   const queryEngine = new QueryEngine()
+  const transcriptIngestor = new TranscriptIngestor()
 
   app.post('/api/webhook', async (request, reply) => {
     if (!validateAuth(request)) {
@@ -236,13 +238,40 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
       })
     }
 
-    if (normalized.isGroup) {
-      await emitWebhookRejectedTrace(tenantId, normalized, 'group_message')
+    const transcript = await transcriptIngestor.ingest({ tenantId, event: normalized, source: 'evolution' })
+
+    if (transcript.nextAction === 'record_only') {
+      if (normalized.isGroup) {
+        await emitWebhookRejectedTrace(tenantId, normalized, 'group_message')
+      }
       return reply.code(200).send({
         success: true,
-        action: 'ignored',
-        reason: 'group_message',
-        event: normalized
+        action: 'record_only',
+        reason: normalized.isGroup ? 'group_message' : transcript.status,
+        transcript_event_id: transcript.event.id,
+        delivery_status: transcript.event.delivery_status
+      })
+    }
+
+    if (transcript.nextAction === 'activate_pause') {
+      return reply.code(200).send({
+        success: true,
+        should_reply: false,
+        action: 'record_only',
+        reason: 'human_takeover',
+        transcript_event_id: transcript.event.id,
+        message: ''
+      })
+    }
+
+    if (transcript.nextAction === 'update_existing') {
+      return reply.code(200).send({
+        success: true,
+        should_reply: false,
+        action: 'record_only',
+        reason: 'bot_delivery_confirmed',
+        transcript_event_id: transcript.event.id,
+        message: ''
       })
     }
 
