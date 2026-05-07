@@ -5,6 +5,7 @@ import type { MessageEventSenderType } from '../db/schema'
 import { AudioPolicy } from './audio-policy'
 import { DeliveryTracker } from './delivery-tracker'
 import { EvolutionSender, type EvolutionSenderConfig } from './evolution-sender'
+import { MessageReactor, type ReactionRequested } from './message-reactor'
 import { splitWhatsAppParagraphs } from './paragraph-splitter'
 import type { PresenceSession } from './presence-simulator'
 import { ElevenLabsTtsAdapter, prepareTextForTts, type TtsAdapter } from './tts-adapter'
@@ -24,6 +25,7 @@ export interface DispatchResponseInput {
   senderType?: MessageEventSenderType
   sourceEvent?: string
   presenceSession?: PresenceSession | null
+  reactionRequested?: ReactionRequested | null
 }
 
 export interface DispatchResponseResult {
@@ -44,7 +46,8 @@ export class ResponseDispatcher {
   constructor(
     private readonly tracker = new DeliveryTracker(),
     private readonly audioPolicy = new AudioPolicy(),
-    private readonly ttsAdapter: TtsAdapter = new ElevenLabsTtsAdapter()
+    private readonly ttsAdapter: TtsAdapter = new ElevenLabsTtsAdapter(),
+    private readonly reactor = new MessageReactor()
   ) {}
 
   /**
@@ -81,6 +84,16 @@ export class ResponseDispatcher {
         : await this.sendText(sender, remoteJid, input.text)
 
       await this.tracker.markSent(event, result.externalMessageId)
+      await this.reactor.react({
+        tenantId: input.tenantId,
+        phone: input.phone,
+        remoteJid,
+        instance: config.instance,
+        evolutionUrl: input.evolutionUrl ?? null,
+        evolutionLocalUrl: input.evolutionLocalUrl ?? null,
+        apiKey: input.apiKey ?? null,
+        reactionRequested: input.reactionRequested ?? null
+      })
       log.info({
         tenant_id: input.tenantId,
         phone: input.phone,

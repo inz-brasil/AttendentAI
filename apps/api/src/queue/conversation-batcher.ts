@@ -148,7 +148,8 @@ export class ConversationBatcher {
       audioRequested: response.audio_requested,
       senderType: 'bot',
       sourceEvent: 'orchestrator.response',
-      presenceSession
+      presenceSession,
+      reactionRequested: response.reaction_requested ?? null
     })
   }
 

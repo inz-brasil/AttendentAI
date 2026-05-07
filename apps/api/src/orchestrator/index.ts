@@ -49,6 +49,10 @@ export interface WebhookResponse {
   success: boolean
   message: string
   audio_requested: boolean
+  reaction_requested?: {
+    emoji: string
+    targetMessageId: string
+  } | null
   metadata: {
     lead_id: string
     agent_used: string
@@ -516,6 +520,7 @@ export class QueryEngine {
       success: true,
       message: guardedText,
       audio_requested: response.audio_requested,
+      reaction_requested: null,
       metadata: {
         lead_id: payload.phone,
         agent_used: 'responder',
@@ -949,6 +954,7 @@ export class QueryEngine {
       success: true,
       message: guardedText,
       audio_requested: false,
+      reaction_requested: null,
       metadata: {
         lead_id: payload.phone,
         agent_used: 'internal-assistant',
