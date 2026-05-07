@@ -19,8 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copiar manifesto de dependências primeiro (melhor cache de layer)
 COPY package.json bun.lock* ./
 
-# Instalar dependências — better-sqlite3 compila nativamente via node-gyp
-RUN bun install --frozen-lockfile
+# Instalar dependências — o contexto desta imagem é apps/api, fora do workspace raiz.
+RUN bun install
 
 # Copiar o restante do código fonte
 COPY src ./src
