@@ -255,30 +255,6 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
       })
     }
 
-    // Reações de contatos internos chegam ao assistente normalmente; apenas leads comuns são ignorados
-    if (normalized.processedType === 'reaction') {
-      const isInternal = await isInternalAssistantPhone(normalized.phone, normalized.remoteJid, tenantId)
-      if (!isInternal) {
-        await traceEmitter.emit('webhook_rejected', {
-          tenant_id: tenantId,
-          phone: normalized.phone,
-          status: 'ignored',
-          data: {
-            reason: 'reaction_event',
-            event_type: normalized.event,
-            message_id: normalized.externalMessageId,
-            reaction_text: normalized.text
-          }
-        })
-        return reply.code(200).send({
-          success: true,
-          action: 'ignored',
-          reason: 'reaction_event',
-          reaction: normalized.text
-        })
-      }
-    }
-
     const transcript = await transcriptIngestor.ingest({ tenantId, event: normalized, source: 'evolution' })
     if (shouldProcessMedia(normalized.processedType) && transcript.status === 'ingested') {
       mediaProcessor.processInBackground({ tenantId, event: normalized, messageEvent: transcript.event })
@@ -399,17 +375,6 @@ async function processInboundEvolutionPayload(
 
   if (await isInternalAssistantContact(payload, tenantId)) {
     return processInternalAssistantEvolutionPayload(payload, reply, queryEngine)
-  }
-
-  // Reações de leads comuns não disparam resposta automática
-  if (payload.event?.raw_message_type === 'reactionMessage' || payload.event?.processed_type === 'reaction') {
-    return {
-      success: true,
-      should_reply: false,
-      action: 'ignored',
-      reason: 'reaction_event',
-      message: ''
-    }
   }
 
   const decision = await canReplyAutomatically(payload.phone, tenantId)
@@ -653,13 +618,6 @@ async function isLikelyWacliSelfEcho(payload: EvolutionPayload, tenantId = 'defa
 
 function normalizeText(value: string): string {
   return value.replace(/\s+/g, ' ').trim().toLowerCase()
-}
-
-async function isInternalAssistantPhone(phone: string, remoteJid: string, tenantId = 'default'): Promise<boolean> {
-  const raw = await getSettingValue('internal_assistant_contacts', '', tenantId)
-  const contacts = parseContactList(raw)
-  if (contacts.length === 0) return false
-  return [phone, remoteJid].filter(Boolean).some((id) => contacts.includes(id))
 }
 
 async function isInternalAssistantContact(payload: EvolutionPayload, tenantId = 'default'): Promise<boolean> {
