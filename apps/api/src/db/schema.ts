@@ -54,6 +54,16 @@ function createUlid(): string {
   return timestamp + randomness
 }
 
+// Registro de tenants — cada portfólio/cliente tem seu próprio namespace
+export const tenants = sqliteTable('tenants', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  is_active: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).defaultNow(),
+  updated_at: integer('updated_at', { mode: 'timestamp_ms' }).defaultNow()
+})
+
 // PK composta (tenant_id, phone) — o mesmo número pode existir em tenants distintos
 export const leads = sqliteTable('leads', {
   phone: text('phone').notNull(),

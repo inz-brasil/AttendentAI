@@ -195,6 +195,15 @@ export interface BlacklistEntry {
   created_at: string | null
 }
 
+export interface Tenant {
+  id: string
+  name: string
+  description: string | null
+  is_active: boolean
+  created_at: string | null
+  updated_at: string | null
+}
+
 export interface QueueStatus {
   counts: Record<string, number>
   jobs: Record<string, Array<Record<string, unknown>>>
@@ -382,5 +391,12 @@ export const api = {
   testEvolutionSend: (data: { number: string; text: string; instance?: string }) =>
     request<Record<string, unknown>>('/api/test/evolution/send', { method: 'POST', body: JSON.stringify(data) }),
   testEvolutionMedia: (data: { message_id: string; instance?: string }) =>
-    request<Record<string, unknown>>('/api/test/evolution/media', { method: 'POST', body: JSON.stringify(data) })
+    request<Record<string, unknown>>('/api/test/evolution/media', { method: 'POST', body: JSON.stringify(data) }),
+  tenants: () => request<Tenant[]>('/api/tenants'),
+  createTenant: (data: { name: string; id?: string; description?: string }) =>
+    request<Tenant>('/api/tenants', { method: 'POST', body: JSON.stringify(data) }),
+  updateTenant: (id: string, data: { name?: string; description?: string; is_active?: boolean }) =>
+    request<Tenant>(`/api/tenants/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deactivateTenant: (id: string) =>
+    request<{ success: boolean }>(`/api/tenants/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }

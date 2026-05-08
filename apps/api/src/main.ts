@@ -11,6 +11,7 @@ import { registerAgentRoutes } from './routes/agents'
 import { registerAgentSkillRoutes } from './routes/agent-skills'
 import { registerBlacklistRoutes } from './routes/blacklist'
 import { registerConfigRoutes } from './routes/config'
+import { registerTenantRoutes } from './routes/tenants'
 import { registerConversationRoutes } from './routes/conversations'
 import { registerAutomationRoutes } from './routes/automation'
 import { registerHealthRoutes } from './routes/health'
@@ -125,6 +126,7 @@ export async function buildServer(): Promise<ReturnType<typeof Fastify>> {
   await registerWebhookRoutes(app)
   await registerConfigRoutes(app)
   await registerBlacklistRoutes(app)
+  await registerTenantRoutes(app)
   await registerAutomationRoutes(app)
   await registerLeadRoutes(app)
   await registerConversationRoutes(app)
