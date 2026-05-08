@@ -51,7 +51,7 @@ export function HomeClient({ initialData }: HomeClientProps): JSX.Element {
 
   const leadsQuery = useQuery({
     queryKey: ['home', 'leads'],
-    queryFn: api.leads,
+    queryFn: () => api.leads(),
     initialData: initialData.leads
   })
   const healthQuery = useQuery({
