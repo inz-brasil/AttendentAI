@@ -1,5 +1,5 @@
 // dashboard-config.ts — Lê e grava configurações editáveis do dashboard na tabela settings
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { env } from './env'
 import { db } from '../db/client'
 import { settings } from '../db/schema'
@@ -77,14 +77,15 @@ export const configDefinitions = {
 } satisfies Record<string, ConfigFieldDefinition[]>
 
 /**
- * Carrega uma seção de configuração editável.
+ * Carrega uma seção de configuração editável de um tenant.
  * @param section Nome da seção.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Configuração tipada com valores atuais.
  */
-export async function getConfigSection(section: keyof typeof configDefinitions): Promise<ConfigSection> {
+export async function getConfigSection(section: keyof typeof configDefinitions, tenantId = 'default'): Promise<ConfigSection> {
   const output: ConfigSection = {}
   for (const definition of configDefinitions[section]) {
-    const raw = await getSettingValue(definition.key)
+    const raw = await getSettingValue(definition.key, tenantId)
     output[toPublicKey(definition.key, section)] = parseConfigValue(raw, definition)
   }
 
@@ -92,14 +93,16 @@ export async function getConfigSection(section: keyof typeof configDefinitions):
 }
 
 /**
- * Atualiza uma seção de configuração editável sem reiniciar servidor.
+ * Atualiza uma seção de configuração editável de um tenant sem reiniciar servidor.
  * @param section Nome da seção.
  * @param input Campos recebidos da API.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Configuração atualizada.
  */
 export async function updateConfigSection(
   section: keyof typeof configDefinitions,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  tenantId = 'default'
 ): Promise<ConfigSection> {
   const definitions = configDefinitions[section]
   for (const definition of definitions) {
@@ -110,38 +113,51 @@ export async function updateConfigSection(
     }
 
     const value = serializeConfigValue(input[inputKey], definition)
-    await upsertSetting(definition.key, value)
-    await writeLegacyAliases(definition.key, value)
+    await upsertSetting(definition.key, value, tenantId)
+    await writeLegacyAliases(definition.key, value, tenantId)
   }
 
-  return getConfigSection(section)
+  return getConfigSection(section, tenantId)
 }
 
 /**
- * Lê setting bruto, retornando fallback quando ausente.
+ * Lê setting bruto de um tenant, retornando null quando ausente.
  * @param key Chave de setting.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Valor salvo ou null.
  */
-export async function getSettingValue(key: string): Promise<string | null> {
-  const [setting] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
+export async function getSettingValue(key: string, tenantId = 'default'): Promise<string | null> {
+  const [setting] = await db
+    .select()
+    .from(settings)
+    .where(and(eq(settings.tenant_id, tenantId), eq(settings.key, key)))
+    .limit(1)
   return setting?.value ?? null
 }
 
 /**
- * Faz upsert em uma setting global.
+ * Faz upsert em uma setting de um tenant específico.
  * @param key Chave.
  * @param value Valor serializado.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Nada.
  */
-export async function upsertSetting(key: string, value: string): Promise<void> {
-  const [existing] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
+export async function upsertSetting(key: string, value: string, tenantId = 'default'): Promise<void> {
+  const [existing] = await db
+    .select()
+    .from(settings)
+    .where(and(eq(settings.tenant_id, tenantId), eq(settings.key, key)))
+    .limit(1)
   const now = new Date()
   if (existing) {
-    await db.update(settings).set({ value, updated_at: now }).where(eq(settings.key, key))
+    await db
+      .update(settings)
+      .set({ value, updated_at: now })
+      .where(and(eq(settings.tenant_id, tenantId), eq(settings.key, key)))
     return
   }
 
-  await db.insert(settings).values({ key, value, updated_at: now })
+  await db.insert(settings).values({ key, tenant_id: tenantId, value, updated_at: now })
 }
 
 function toPublicKey(key: string, section: keyof typeof configDefinitions): string {
@@ -203,7 +219,7 @@ function redactSecret(value: ConfigValue): string {
   return raw.length <= 8 ? '********' : `${raw.slice(0, 4)}...${raw.slice(-4)}`
 }
 
-async function writeLegacyAliases(key: string, value: string): Promise<void> {
+async function writeLegacyAliases(key: string, value: string, tenantId = 'default'): Promise<void> {
   const aliases: Record<string, string[]> = {
     schedule_enabled: ['automation_schedule_enabled'],
     schedule_open_time: ['automation_schedule_start'],
@@ -213,6 +229,6 @@ async function writeLegacyAliases(key: string, value: string): Promise<void> {
   }
 
   for (const alias of aliases[key] ?? []) {
-    await upsertSetting(alias, value)
+    await upsertSetting(alias, value, tenantId)
   }
 }

@@ -87,6 +87,11 @@ export class VaultManager {
     this.rootPath = rootPath
   }
 
+  /** Cria instância com subdiretório de tenant isolado. */
+  static forTenant(basePath: string, tenantId: string): VaultManager {
+    return new VaultManager(join(basePath, tenantId))
+  }
+
   /**
    * Cria a pasta de um lead e os arquivos padrão quando necessário.
    * @param phone Telefone do lead.
@@ -192,17 +197,19 @@ export class VaultManager {
   /**
    * Apaga historico.md e mensagens do banco, mantendo memoria.md e notas.md.
    * @param phone Telefone do lead.
+   * @param tenantId Tenant isolado (default: 'default').
    * @returns Nada.
    */
-  async deleteHistory(phone: string): Promise<void> {
+  async deleteHistory(phone: string, tenantId = 'default'): Promise<void> {
     const leadPath = await this.getExistingOrDefaultLeadPath(phone)
     await writeFile(this.resolveFilePath(leadPath, 'historico.md'), buildHistoryTemplate(phone), 'utf8')
-    const [{ db }, { conversations, messages }] = await Promise.all([
+    const [{ db }, { conversations, messages }, { and }] = await Promise.all([
       import('../db/client'),
-      import('../db/schema')
+      import('../db/schema'),
+      import('drizzle-orm')
     ])
-    await db.delete(messages).where(eq(messages.lead_phone, phone))
-    await db.delete(conversations).where(eq(conversations.lead_phone, phone))
+    await db.delete(messages).where(and(eq(messages.tenant_id, tenantId), eq(messages.lead_phone, phone)))
+    await db.delete(conversations).where(and(eq(conversations.tenant_id, tenantId), eq(conversations.lead_phone, phone)))
   }
 
   private async ensureDefaultFiles(leadPath: string, phone: string, name: string): Promise<void> {

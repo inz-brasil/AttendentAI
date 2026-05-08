@@ -6,6 +6,7 @@ import { configDefinitions, getConfigSection, type ConfigSection, updateConfigSe
 
 const sectionNames = Object.keys(configDefinitions) as Array<keyof typeof configDefinitions>
 const configBodySchema = z.record(z.unknown())
+const tenantQuerySchema = z.object({ tenant_id: z.string().min(1).default('default') })
 
 /**
  * Registra endpoints /api/config/*.
@@ -14,14 +15,18 @@ const configBodySchema = z.record(z.unknown())
  */
 export async function registerConfigRoutes(app: FastifyInstance): Promise<void> {
   for (const section of sectionNames) {
-    app.get(`/api/config/${section}`, async () => ({
-      section,
-      config: withSectionStatus(section, await getConfigSection(section))
-    }))
+    app.get(`/api/config/${section}`, async (request) => {
+      const query = tenantQuerySchema.parse(request.query)
+      return {
+        section,
+        config: withSectionStatus(section, await getConfigSection(section, query.tenant_id))
+      }
+    })
 
     app.put(`/api/config/${section}`, async (request) => {
+      const query = tenantQuerySchema.parse(request.query)
       const body = configBodySchema.parse(request.body ?? {})
-      const config = await updateConfigSection(section, body)
+      const config = await updateConfigSection(section, body, query.tenant_id)
       if (section === 'business') {
         await writeBusinessProfileVault(config)
       }

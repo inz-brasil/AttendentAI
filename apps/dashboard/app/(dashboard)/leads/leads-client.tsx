@@ -56,10 +56,10 @@ function useDebouncedSearch(initial: string, delay = 120) {
 
 /**
  * Tabela de leads interativa com busca, filtro e ações.
- * @param props Lista inicial de leads.
+ * @param props Lista inicial de leads e tenant ativo.
  * @returns Tabela operacional de leads.
  */
-export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Element {
+export function LeadsClient({ initialLeads, tenantId = 'default' }: { initialLeads: Lead[]; tenantId?: string }): JSX.Element {
   const { t } = useTranslation()
   const router = useRouter()
   const { toast } = useToast()
@@ -107,7 +107,7 @@ export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Ele
   async function handleDeleteHistory(phone: string) {
     try {
       const res = await fetch(
-        `${(process.env.NEXT_PUBLIC_API_URL || '/api/backend')}/api/leads/${encodeURIComponent(phone)}/history`,
+        `${(process.env.NEXT_PUBLIC_API_URL || '/api/backend')}/api/leads/${encodeURIComponent(phone)}/history?tenant_id=${encodeURIComponent(tenantId)}`,
         { method: 'DELETE' }
       )
       if (!res.ok) throw new Error('Erro ao apagar histórico')
@@ -125,7 +125,7 @@ export function LeadsClient({ initialLeads }: { initialLeads: Lead[] }): JSX.Ele
   async function handleDeleteLead(phone: string) {
     try {
       const res = await fetch(
-        `${(process.env.NEXT_PUBLIC_API_URL || '/api/backend')}/api/leads/${encodeURIComponent(phone)}`,
+        `${(process.env.NEXT_PUBLIC_API_URL || '/api/backend')}/api/leads/${encodeURIComponent(phone)}?tenant_id=${encodeURIComponent(tenantId)}`,
         { method: 'DELETE' }
       )
       if (!res.ok) throw new Error('Erro ao remover lead')

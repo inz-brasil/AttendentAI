@@ -1,5 +1,5 @@
 // index.ts — QueryEngine orquestra agentes com contexto isolado e resposta final
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import pino from 'pino'
 import { ClassifierAgent } from '../agents/classifier'
 import { MCP_ENABLED } from '../config/constants'
@@ -121,6 +121,7 @@ export class QueryEngine {
   private async processUnlocked(payload: WebhookPayload): Promise<WebhookResponse> {
     const startedAt = Date.now()
     const runId = crypto.randomUUID()
+    const tenantId = this.getStringContactField(payload.contact_info, 'tenant_id') ?? 'default'
     await recordTrace({
       phone: payload.phone,
       runId,
@@ -163,14 +164,14 @@ export class QueryEngine {
         }
       })
     }
-    if (await this.isInternalAssistantContact(payload)) {
-      return this.processInternalAssistant(payload, runtimeContext, startedAt, runId, wacliContext.prompt_context)
+    if (await this.isInternalAssistantContact(payload, tenantId)) {
+      return this.processInternalAssistant(payload, runtimeContext, startedAt, runId, wacliContext.prompt_context, tenantId)
     }
 
     // Lead e memória em paralelo (duas queries independentes no banco)
     const [lead, memory] = await Promise.all([
-      getOrCreateLead(payload.phone, payload.name, payload.contact_info),
-      loadMemory(payload.phone)
+      getOrCreateLead(payload.phone, payload.name, payload.contact_info, tenantId),
+      loadMemory(payload.phone, tenantId)
     ])
     await recordTrace({
       phone: payload.phone,
@@ -189,11 +190,13 @@ export class QueryEngine {
     // Classificador e identificador em paralelo (LLM calls independentes)
     const [classification, identification] = await Promise.all([
       this.classifier.run({
+        tenant_id: tenantId,
         phone: payload.phone,
         message: payload.message,
         history_summary: memory.history_summary
       }),
       this.identifier.run({
+        tenant_id: tenantId,
         phone: payload.phone,
         message: payload.message,
         current_lead: {
@@ -225,7 +228,7 @@ export class QueryEngine {
     const leadUpdates = this.normalizeLeadUpdates(identification.fields_to_update)
     const hasLeadUpdates = Object.keys(leadUpdates).length > 0
     if (hasLeadUpdates) {
-      await updateLead(payload.phone, leadUpdates)
+      await updateLead(payload.phone, leadUpdates, tenantId)
       await recordTrace({
         phone: payload.phone,
         runId,
@@ -236,7 +239,7 @@ export class QueryEngine {
       })
     }
 
-    const refreshedLead = await this.loadLeadForResponse(payload.phone)
+    const refreshedLead = await this.loadLeadForResponse(payload.phone, tenantId)
     if (hasLeadUpdates && refreshedLead) {
       await this.memoryAgent.updateLeadMemory(payload.phone, {
         phone: refreshedLead.phone,
@@ -247,12 +250,12 @@ export class QueryEngine {
         tags: refreshedLead.tags
       })
     }
-    const refreshedMemory = await loadMemory(payload.phone)
+    const refreshedMemory = await loadMemory(payload.phone, tenantId)
     const liveSummary = this.buildLiveConversationSummary(payload, refreshedLead?.name ?? payload.name, refreshedMemory.recent_messages)
 
     // Salvar resumo, buscar vault e carregar skills em paralelo
     const [, vaultContext, skillCandidates] = await Promise.all([
-      saveConversationSummary(payload.phone, refreshedLead?.name ?? payload.name, liveSummary),
+      saveConversationSummary(payload.phone, refreshedLead?.name ?? payload.name, liveSummary, tenantId),
       this.memoryAgent.fetchRelevant(payload.phone, classification.intent),
       this.loadSkillCandidates('responder')
     ])
@@ -276,8 +279,9 @@ export class QueryEngine {
       classification,
       candidates: skillCandidates
     })
+    const isHttpEnabled = await this.isHttpToolEnabled(tenantId)
     const contextPackage = await this.contextAssembler.assemble({
-      tenantId: this.getStringContactField(payload.contact_info, 'tenant_id') ?? 'default',
+      tenantId,
       phone: payload.phone,
       currentMessage: payload.message,
       quotedText: this.getStringContactField(payload.contact_info, 'quoted_content') ?? null,
@@ -285,7 +289,7 @@ export class QueryEngine {
       timezone: runtimeContext.timezone,
       relevantMemory: vaultContext,
       selectedSkills: routedSkills.contextSummary,
-      toolsContext: await this.buildToolsContext(),
+      toolsContext: await this.buildToolsContext(tenantId),
       batchId: this.getStringContactField(payload.contact_info, 'batch_id') ?? null
     })
     const promptBuild = await this.promptBuilder.buildDetailed({
@@ -331,7 +335,7 @@ export class QueryEngine {
         skills: promptBuild.skills,
         skill_router: routedSkills,
         global_vault_files: promptBuild.globalFiles,
-        tools_enabled: await this.isHttpToolEnabled()
+        tools_enabled: isHttpEnabled
       }
     })
 
@@ -340,8 +344,8 @@ export class QueryEngine {
       saveMessage(payload.phone, 'user', payload.message, {
         message_type: payload.message_type,
         intent: classification.intent
-      }),
-      this.isMcpEnabled()
+      }, tenantId),
+      this.isMcpEnabled(tenantId)
     ])
     await recordTrace({
       phone: payload.phone,
@@ -386,7 +390,7 @@ export class QueryEngine {
         })
       : null
     if (schedulingResult?.status === 'created') {
-      await setLeadStatus(payload.phone, 'lead_quente')
+      await setLeadStatus(payload.phone, 'lead_quente', tenantId)
       await this.memoryAgent.updateLeadMemory(payload.phone, {
         phone: payload.phone,
         name: refreshedLead?.name ?? payload.name,
@@ -427,14 +431,15 @@ export class QueryEngine {
     }
 
     const response = await this.responder.run({
+      tenant_id: tenantId,
       phone: payload.phone,
       run_id: runId,
       system_prompt: systemPrompt,
       message: payload.message,
       lead_name: refreshedLead?.name ?? payload.name,
-      model: await this.getResponderModel(),
+      model: await this.getResponderModel(tenantId),
       classification,
-      tools_enabled: await this.isHttpToolEnabled(),
+      tools_enabled: isHttpEnabled,
       mcp_enabled: mcpEnabled,
       mcp_tools: mcpTools,
       scheduling_required: shouldRunScheduling,
@@ -482,7 +487,7 @@ export class QueryEngine {
       tokens_used: response.tokens_used,
       agent_used: 'responder',
       processing_ms: response.duration_ms
-    })
+    }, tenantId)
     await recordTrace({
       phone: payload.phone,
       runId,
@@ -858,10 +863,11 @@ export class QueryEngine {
     runtimeContext: { currentTime: string; timezone: string },
     startedAt: number,
     runId: string,
-    wacliPromptContext: string
+    wacliPromptContext: string,
+    tenantId = 'default'
   ): Promise<WebhookResponse> {
     const systemPrompt = await this.getInternalAssistantPrompt()
-    const memory = await loadMemory(payload.phone)
+    const memory = await loadMemory(payload.phone, tenantId)
     await recordTrace({
       phone: payload.phone,
       runId,
@@ -878,9 +884,10 @@ export class QueryEngine {
       message_type: payload.message_type,
       intent: 'internal',
       agent_used: 'internal-operator'
-    })
+    }, tenantId)
 
     const internalInput = {
+      tenant_id: tenantId,
       phone: payload.phone,
       run_id: runId,
       system_prompt: systemPrompt,
@@ -941,7 +948,7 @@ export class QueryEngine {
       tokens_used: response.tokens_used,
       agent_used: 'internal-assistant',
       processing_ms: response.duration_ms
-    })
+    }, tenantId)
 
     broadcast({
       type: 'new_message',
@@ -981,8 +988,8 @@ export class QueryEngine {
     }
   }
 
-  private async isInternalAssistantContact(payload: WebhookPayload): Promise<boolean> {
-    const raw = await this.getSettingValue('internal_assistant_contacts')
+  private async isInternalAssistantContact(payload: WebhookPayload, tenantId = 'default'): Promise<boolean> {
+    const raw = await this.getSettingValue('internal_assistant_contacts', tenantId)
     const contacts = this.parseContactList(raw)
     if (contacts.length === 0) {
       return false
@@ -1005,18 +1012,22 @@ export class QueryEngine {
     return agent?.system_prompt ?? ''
   }
 
-  private async getSettingValue(key: string): Promise<string> {
-    const [setting] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
+  private async getSettingValue(key: string, tenantId = 'default'): Promise<string> {
+    const [setting] = await db
+      .select()
+      .from(settings)
+      .where(and(eq(settings.tenant_id, tenantId), eq(settings.key, key)))
+      .limit(1)
     return setting?.value ?? ''
   }
 
-  private async isHttpToolEnabled(): Promise<boolean> {
-    return (await this.getSettingValue('tool_http_enabled')).trim().toLowerCase() === 'true'
+  private async isHttpToolEnabled(tenantId = 'default'): Promise<boolean> {
+    return (await this.getSettingValue('tool_http_enabled', tenantId)).trim().toLowerCase() === 'true'
   }
 
-  private async buildToolsContext(): Promise<string> {
-    const httpEnabled = await this.isHttpToolEnabled()
-    const mcpEnabled = await this.isMcpEnabled()
+  private async buildToolsContext(tenantId = 'default'): Promise<string> {
+    const httpEnabled = await this.isHttpToolEnabled(tenantId)
+    const mcpEnabled = await this.isMcpEnabled(tenantId)
     return [
       httpEnabled ? '- http_request: disponível para webhooks/APIs quando houver dados confirmados' : '- http_request: desativada',
       httpEnabled ? '- evolution_send: disponível para envio WhatsApp ativo confirmado via Evolution' : '- evolution_send: desativada',
@@ -1024,12 +1035,12 @@ export class QueryEngine {
     ].join('\n')
   }
 
-  private async isMcpEnabled(): Promise<boolean> {
-    return MCP_ENABLED || (await this.getSettingValue('mcp_enabled')).trim().toLowerCase() === 'true'
+  private async isMcpEnabled(tenantId = 'default'): Promise<boolean> {
+    return MCP_ENABLED || (await this.getSettingValue('mcp_enabled', tenantId)).trim().toLowerCase() === 'true'
   }
 
-  private async getResponderModel(): Promise<string> {
-    const configuredModel = (await this.getSettingValue('model_responder')).trim()
+  private async getResponderModel(tenantId = 'default'): Promise<string> {
+    const configuredModel = (await this.getSettingValue('model_responder', tenantId)).trim()
     if (configuredModel) {
       return configuredModel
     }
@@ -1077,8 +1088,8 @@ export class QueryEngine {
     return typeof value === 'string' && value.trim() ? value : undefined
   }
 
-  private async loadLeadForResponse(phone: string) {
-    const [lead] = await db.select().from(leads).where(eq(leads.phone, phone)).limit(1)
+  private async loadLeadForResponse(phone: string, tenantId = 'default') {
+    const [lead] = await db.select().from(leads).where(and(eq(leads.tenant_id, tenantId), eq(leads.phone, phone))).limit(1)
     return lead
   }
 

@@ -5,24 +5,26 @@ import { notFound } from 'next/navigation'
 
 interface Props {
   params: { phone: string }
+  searchParams: { tenant_id?: string }
 }
 
 /**
  * Página de perfil do lead — RSC que busca dados em paralelo.
- * @param props phone do lead via params.
+ * @param props phone do lead via params e tenant_id via searchParams.
  * @returns Perfil completo do lead.
  */
-export default async function LeadProfilePage({ params }: Props): Promise<JSX.Element> {
+export default async function LeadProfilePage({ params, searchParams }: Props): Promise<JSX.Element> {
   const phone = decodeURIComponent(params.phone)
+  const tenantId = searchParams.tenant_id ?? 'default'
+  const apiUrl = process.env.API_URL ?? 'http://localhost:3001'
 
   const [leadResult, messagesResult, vaultFilesResult] = await Promise.allSettled([
-    api.lead(phone),
-    // Busca mensagens via rota de conversas (usa fetch direto pois api.ts não tem este endpoint ainda)
+    api.lead(phone, tenantId),
     fetch(
-      `${process.env.API_URL ?? 'http://localhost:3001'}/api/conversations/${encodeURIComponent(phone)}`,
+      `${apiUrl}/api/conversations/${encodeURIComponent(phone)}?tenant_id=${encodeURIComponent(tenantId)}`,
       { cache: 'no-store' }
     ).then(r => r.ok ? r.json() : { messages: [] }),
-    api.vaultFiles(phone)
+    api.vaultFiles(phone, tenantId)
   ])
 
   if (leadResult.status === 'rejected') {
@@ -39,6 +41,7 @@ export default async function LeadProfilePage({ params }: Props): Promise<JSX.El
       initialMessages={conversationData.messages ?? []}
       vaultFiles={vaultFiles}
       phone={phone}
+      tenantId={tenantId}
     />
   )
 }

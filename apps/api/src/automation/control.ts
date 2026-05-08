@@ -28,14 +28,15 @@ const DEFAULT_BLACKLIST_MINUTES = 120
 /**
  * Decide se o bot pode responder automaticamente para um telefone agora.
  * @param phone Telefone do lead.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Decisão com motivo e dados de auditoria.
  */
-export async function canReplyAutomatically(phone: string): Promise<AutomationDecision> {
-  await cleanupExpiredBlacklist(phone)
+export async function canReplyAutomatically(phone: string, tenantId = 'default'): Promise<AutomationDecision> {
+  await cleanupExpiredBlacklist(phone, tenantId)
   const [enabledRaw, schedule, blacklist] = await Promise.all([
-    getSettingValue('automation_enabled', 'true'),
-    getAutomationSchedule(),
-    getActiveBlacklist(phone)
+    getSettingValue('automation_enabled', 'true', tenantId),
+    getAutomationSchedule(tenantId),
+    getActiveBlacklist(phone, tenantId)
   ])
 
   if (enabledRaw.trim().toLowerCase() === 'false') {
@@ -58,24 +59,30 @@ export async function canReplyAutomatically(phone: string): Promise<AutomationDe
  * @param phone Telefone do lead.
  * @param reason Motivo auditável.
  * @param source Origem da pausa.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Registro atualizado.
  */
 export async function activateAutomationBlacklist(
   phone: string,
   reason = 'human_takeover',
-  source = 'evolution'
+  source = 'evolution',
+  tenantId = 'default'
 ): Promise<{ phone: string; expires_at: Date }> {
-  const minutes = Number(await getSettingValue('automation_blacklist_default_minutes', String(DEFAULT_BLACKLIST_MINUTES)))
+  const minutes = Number(await getSettingValue('automation_blacklist_default_minutes', String(DEFAULT_BLACKLIST_MINUTES), tenantId))
   const expiresAt = new Date(Date.now() + Math.max(1, minutes || DEFAULT_BLACKLIST_MINUTES) * 60_000)
-  const existing = await db.select().from(automationBlacklist).where(eq(automationBlacklist.phone, phone)).limit(1)
+  const [existing] = await db
+    .select()
+    .from(automationBlacklist)
+    .where(and(eq(automationBlacklist.tenant_id, tenantId), eq(automationBlacklist.phone, phone)))
+    .limit(1)
 
-  if (existing.length > 0) {
+  if (existing) {
     await db
       .update(automationBlacklist)
       .set({ reason, source, expires_at: expiresAt, updated_at: new Date() })
-      .where(eq(automationBlacklist.phone, phone))
+      .where(and(eq(automationBlacklist.tenant_id, tenantId), eq(automationBlacklist.phone, phone)))
   } else {
-    await db.insert(automationBlacklist).values({ phone, reason, source, expires_at: expiresAt })
+    await db.insert(automationBlacklist).values({ phone, tenant_id: tenantId, reason, source, expires_at: expiresAt })
   }
 
   return { phone, expires_at: expiresAt }
@@ -84,23 +91,24 @@ export async function activateAutomationBlacklist(
 /**
  * Remove pausa automática de um lead.
  * @param phone Telefone do lead.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Nada.
  */
-export async function deactivateAutomationBlacklist(phone: string): Promise<void> {
-  await db.delete(automationBlacklist).where(eq(automationBlacklist.phone, phone))
+export async function deactivateAutomationBlacklist(phone: string, tenantId = 'default'): Promise<void> {
+  await db.delete(automationBlacklist).where(and(eq(automationBlacklist.tenant_id, tenantId), eq(automationBlacklist.phone, phone)))
 }
 
 /**
  * Lista configurações atuais de automação.
  * @returns Estado da automação.
  */
-export async function getAutomationStatus(): Promise<Record<string, unknown>> {
-  const schedule = await getAutomationSchedule()
-  const enabled = (await getSettingValue('automation_enabled', 'true')).trim().toLowerCase() !== 'false'
+export async function getAutomationStatus(tenantId = 'default'): Promise<Record<string, unknown>> {
+  const schedule = await getAutomationSchedule(tenantId)
+  const enabled = (await getSettingValue('automation_enabled', 'true', tenantId)).trim().toLowerCase() !== 'false'
   const activeBlacklist = await db
     .select()
     .from(automationBlacklist)
-    .where(gt(automationBlacklist.expires_at, new Date()))
+    .where(and(eq(automationBlacklist.tenant_id, tenantId), gt(automationBlacklist.expires_at, new Date())))
 
   return {
     automation_enabled: enabled,
@@ -120,15 +128,18 @@ export async function getAutomationStatus(): Promise<Record<string, unknown>> {
  * @param input Campos opcionais de configuração.
  * @returns Estado atualizado.
  */
-export async function updateAutomationSettings(input: {
-  enabled?: boolean | undefined
-  schedule_enabled?: boolean | undefined
-  schedule_start?: string | undefined
-  schedule_end?: string | undefined
-  timezone?: string | undefined
-  blacklist_default_minutes?: number | undefined
-}): Promise<Record<string, unknown>> {
-  const updates: Array<{ key: string; value: string; description?: string }> = []
+export async function updateAutomationSettings(
+  input: {
+    enabled?: boolean | undefined
+    schedule_enabled?: boolean | undefined
+    schedule_start?: string | undefined
+    schedule_end?: string | undefined
+    timezone?: string | undefined
+    blacklist_default_minutes?: number | undefined
+  },
+  tenantId = 'default'
+): Promise<Record<string, unknown>> {
+  const updates: Array<{ key: string; value: string }> = []
   if (input.enabled !== undefined) updates.push({ key: 'automation_enabled', value: String(input.enabled) })
   if (input.schedule_enabled !== undefined) updates.push({ key: 'automation_schedule_enabled', value: String(input.schedule_enabled) })
   if (input.schedule_start) updates.push({ key: 'automation_schedule_start', value: input.schedule_start })
@@ -139,17 +150,17 @@ export async function updateAutomationSettings(input: {
   }
 
   for (const update of updates) {
-    await upsertSetting(update.key, update.value, update.description)
+    await upsertSetting(update.key, update.value, tenantId)
   }
 
-  return getAutomationStatus()
+  return getAutomationStatus(tenantId)
 }
 
-async function getActiveBlacklist(phone: string): Promise<AutomationDecision['blacklist']> {
+async function getActiveBlacklist(phone: string, tenantId = 'default'): Promise<AutomationDecision['blacklist']> {
   const [row] = await db
     .select()
     .from(automationBlacklist)
-    .where(and(eq(automationBlacklist.phone, phone), gt(automationBlacklist.expires_at, new Date())))
+    .where(and(eq(automationBlacklist.tenant_id, tenantId), eq(automationBlacklist.phone, phone), gt(automationBlacklist.expires_at, new Date())))
     .limit(1)
 
   return {
@@ -159,19 +170,23 @@ async function getActiveBlacklist(phone: string): Promise<AutomationDecision['bl
   }
 }
 
-async function cleanupExpiredBlacklist(phone: string): Promise<void> {
-  const [row] = await db.select().from(automationBlacklist).where(eq(automationBlacklist.phone, phone)).limit(1)
+async function cleanupExpiredBlacklist(phone: string, tenantId = 'default'): Promise<void> {
+  const [row] = await db
+    .select()
+    .from(automationBlacklist)
+    .where(and(eq(automationBlacklist.tenant_id, tenantId), eq(automationBlacklist.phone, phone)))
+    .limit(1)
   if (row?.expires_at && row.expires_at.getTime() <= Date.now()) {
-    await db.delete(automationBlacklist).where(eq(automationBlacklist.phone, phone))
+    await db.delete(automationBlacklist).where(and(eq(automationBlacklist.tenant_id, tenantId), eq(automationBlacklist.phone, phone)))
   }
 }
 
-async function getAutomationSchedule(): Promise<AutomationSchedule> {
+async function getAutomationSchedule(tenantId = 'default'): Promise<AutomationSchedule> {
   const [enabled, start, end, timezone] = await Promise.all([
-    getSettingValue('automation_schedule_enabled', 'false'),
-    getSettingValue('automation_schedule_start', '18:00'),
-    getSettingValue('automation_schedule_end', '09:00'),
-    getSettingValue('automation_schedule_timezone', 'America/Sao_Paulo')
+    getSettingValue('automation_schedule_enabled', 'false', tenantId),
+    getSettingValue('automation_schedule_start', '18:00', tenantId),
+    getSettingValue('automation_schedule_end', '09:00', tenantId),
+    getSettingValue('automation_schedule_timezone', 'America/Sao_Paulo', tenantId)
   ])
   const nowMinutes = getCurrentMinutesInTimezone(timezone)
   return {
@@ -210,17 +225,28 @@ function isInsideWindow(now: number, start: number, end: number): boolean {
   return now >= start || now < end
 }
 
-export async function getSettingValue(key: string, fallback = ''): Promise<string> {
-  const [setting] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
+export async function getSettingValue(key: string, fallback = '', tenantId = 'default'): Promise<string> {
+  const [setting] = await db
+    .select()
+    .from(settings)
+    .where(and(eq(settings.tenant_id, tenantId), eq(settings.key, key)))
+    .limit(1)
   return setting?.value ?? fallback
 }
 
-export async function upsertSetting(key: string, value: string, description?: string): Promise<void> {
-  const [existing] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
+export async function upsertSetting(key: string, value: string, tenantId = 'default', description?: string): Promise<void> {
+  const [existing] = await db
+    .select()
+    .from(settings)
+    .where(and(eq(settings.tenant_id, tenantId), eq(settings.key, key)))
+    .limit(1)
   if (existing) {
-    await db.update(settings).set({ value, updated_at: new Date() }).where(eq(settings.key, key))
+    await db
+      .update(settings)
+      .set({ value, updated_at: new Date() })
+      .where(and(eq(settings.tenant_id, tenantId), eq(settings.key, key)))
     return
   }
 
-  await db.insert(settings).values({ key, value, description, updated_at: new Date() })
+  await db.insert(settings).values({ key, tenant_id: tenantId, value, description, updated_at: new Date() })
 }

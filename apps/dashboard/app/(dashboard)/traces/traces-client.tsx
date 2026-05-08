@@ -37,6 +37,7 @@ const EVENT_VARIANT: Record<string, 'accent' | 'cyan' | 'success' | 'danger' | '
 
 interface TracesClientProps {
   initialContacts: TraceContact[]
+  tenantId?: string
 }
 
 function formatDate(value: string | null): string {
@@ -75,7 +76,7 @@ function getPrompt(data: Record<string, unknown> | null): string {
  * @param props Contatos iniciais ordenados por atividade recente.
  * @returns Lista de contatos e timeline de runs por mensagem.
  */
-export function TracesClient({ initialContacts }: TracesClientProps): JSX.Element {
+export function TracesClient({ initialContacts, tenantId = 'default' }: TracesClientProps): JSX.Element {
   const { toast } = useToast()
   const [contacts, setContacts] = useState(initialContacts)
   const [selectedPhone, setSelectedPhone] = useState(initialContacts[0]?.phone ?? '')

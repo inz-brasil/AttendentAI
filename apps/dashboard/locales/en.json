@@ -182,7 +182,8 @@
       "audio": "Audio",
       "reactions": "Reactions",
       "presence": "Presence",
-      "blacklist": "Blacklist"
+      "blacklist": "Blacklist",
+      "tenant_manager": "Tenant Manager"
     },
     "descriptions": {
       "business": "The company identity. Everything the assistant needs to know is attached to this portfolio and saved into the vault.",

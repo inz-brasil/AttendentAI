@@ -1,5 +1,5 @@
 // schedule.ts — Avalia janela determinística de atendimento automático
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '../db/client'
 import { settings } from '../db/schema'
 
@@ -20,16 +20,17 @@ const defaultDays = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 /**
  * Avalia horário de atendimento automático.
  * @param now Data atual, injetável para testes.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Decisão da agenda.
  */
-export async function getScheduleDecision(now = new Date()): Promise<ScheduleDecision> {
+export async function getScheduleDecision(now = new Date(), tenantId = 'default'): Promise<ScheduleDecision> {
   const [enabledRaw, timezone, openTime, closeTime, daysRaw, replyOutsideRaw] = await Promise.all([
-    getFirstSettingValue(['schedule_enabled', 'automation_schedule_enabled'], 'false'),
-    getFirstSettingValue(['schedule_timezone', 'automation_schedule_timezone'], 'America/Sao_Paulo'),
-    getFirstSettingValue(['schedule_open_time', 'automation_schedule_start'], '18:00'),
-    getFirstSettingValue(['schedule_close_time', 'automation_schedule_end'], '09:00'),
-    getFirstSettingValue(['schedule_days'], JSON.stringify(defaultDays)),
-    getFirstSettingValue(['reply_outside_schedule'], 'false')
+    getFirstSettingValue(['schedule_enabled', 'automation_schedule_enabled'], 'false', tenantId),
+    getFirstSettingValue(['schedule_timezone', 'automation_schedule_timezone'], 'America/Sao_Paulo', tenantId),
+    getFirstSettingValue(['schedule_open_time', 'automation_schedule_start'], '18:00', tenantId),
+    getFirstSettingValue(['schedule_close_time', 'automation_schedule_end'], '09:00', tenantId),
+    getFirstSettingValue(['schedule_days'], JSON.stringify(defaultDays), tenantId),
+    getFirstSettingValue(['reply_outside_schedule'], 'false', tenantId)
   ])
   const day = getDayKey(now, timezone)
   const days = parseDays(daysRaw)
@@ -119,9 +120,9 @@ function isInsideWindow(now: number, start: number, end: number): boolean {
   return now >= start || now < end
 }
 
-async function getFirstSettingValue(keys: string[], fallback: string): Promise<string> {
+async function getFirstSettingValue(keys: string[], fallback: string, tenantId = 'default'): Promise<string> {
   for (const key of keys) {
-    const [setting] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
+    const [setting] = await db.select().from(settings).where(and(eq(settings.tenant_id, tenantId), eq(settings.key, key))).limit(1)
     if (setting?.value) {
       return setting.value
     }

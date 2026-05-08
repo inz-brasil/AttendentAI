@@ -1,5 +1,5 @@
 // blacklist.ts — Expõe CRUD de blacklist/manual pause para o dashboard
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { activateAutomationBlacklist, deactivateAutomationBlacklist } from '../automation/control'
@@ -24,7 +24,11 @@ const phoneParamsSchema = z.object({ phone: z.string().min(1) })
 export async function registerBlacklistRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/blacklist', async (request) => {
     const query = blacklistQuerySchema.parse(request.query)
-    const rows = await db.select().from(automationBlacklist).orderBy(desc(automationBlacklist.updated_at))
+    const rows = await db
+      .select()
+      .from(automationBlacklist)
+      .where(eq(automationBlacklist.tenant_id, query.tenant_id))
+      .orderBy(desc(automationBlacklist.updated_at))
     return {
       tenant_id: query.tenant_id,
       items: rows.map((row) => ({
@@ -41,14 +45,15 @@ export async function registerBlacklistRoutes(app: FastifyInstance): Promise<voi
   app.post('/api/blacklist', async (request, reply) => {
     const body = blacklistBodySchema.parse(request.body)
     const result = body.duration_minutes
-      ? await activateWithCustomDuration(body.phone, body.reason, body.source, body.duration_minutes)
-      : await activateAutomationBlacklist(body.phone, body.reason, body.source)
+      ? await activateWithCustomDuration(body.phone, body.reason, body.source, body.duration_minutes, body.tenant_id)
+      : await activateAutomationBlacklist(body.phone, body.reason, body.source, body.tenant_id)
     return reply.code(201).send({ success: true, tenant_id: body.tenant_id, ...result })
   })
 
   app.delete('/api/blacklist/:phone', async (request) => {
     const params = phoneParamsSchema.parse(request.params)
-    await deactivateAutomationBlacklist(params.phone)
+    const query = blacklistQuerySchema.parse(request.query)
+    await deactivateAutomationBlacklist(params.phone, query.tenant_id)
     return { success: true }
   })
 }
@@ -57,17 +62,22 @@ async function activateWithCustomDuration(
   phone: string,
   reason: string,
   source: string,
-  durationMinutes: number
+  durationMinutes: number,
+  tenantId = 'default'
 ): Promise<{ phone: string; expires_at: Date }> {
   const expiresAt = new Date(Date.now() + durationMinutes * 60_000)
-  const [existing] = await db.select().from(automationBlacklist).where(eq(automationBlacklist.phone, phone)).limit(1)
+  const [existing] = await db
+    .select()
+    .from(automationBlacklist)
+    .where(and(eq(automationBlacklist.tenant_id, tenantId), eq(automationBlacklist.phone, phone)))
+    .limit(1)
   if (existing) {
     await db
       .update(automationBlacklist)
       .set({ reason, source, expires_at: expiresAt, updated_at: new Date() })
-      .where(eq(automationBlacklist.phone, phone))
+      .where(and(eq(automationBlacklist.tenant_id, tenantId), eq(automationBlacklist.phone, phone)))
   } else {
-    await db.insert(automationBlacklist).values({ phone, reason, source, expires_at: expiresAt })
+    await db.insert(automationBlacklist).values({ phone, tenant_id: tenantId, reason, source, expires_at: expiresAt })
   }
 
   return { phone, expires_at: expiresAt }

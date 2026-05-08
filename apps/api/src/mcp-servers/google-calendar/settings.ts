@@ -1,5 +1,5 @@
 // settings.ts — Centraliza configurações operacionais do MCP Google Calendar
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '../../db/client'
 import { settings } from '../../db/schema'
 
@@ -27,19 +27,20 @@ export interface EventDescriptionInput {
   notes?: string | undefined
 }
 
-async function getSettingValue(key: string): Promise<string | null> {
-  const [setting] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
+async function getSettingValue(key: string, tenantId = 'default'): Promise<string | null> {
+  const [setting] = await db.select().from(settings).where(and(eq(settings.tenant_id, tenantId), eq(settings.key, key))).limit(1)
   return setting?.value?.trim() || null
 }
 
 /**
  * Carrega agenda padrão e template de descrição do Google Calendar.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Configuração do MCP Calendar com fallback seguro.
  */
-export async function getGoogleCalendarSettings(): Promise<GoogleCalendarSettings> {
+export async function getGoogleCalendarSettings(tenantId = 'default'): Promise<GoogleCalendarSettings> {
   const [calendarId, eventDescriptionTemplate] = await Promise.all([
-    getSettingValue(GOOGLE_CALENDAR_ID_SETTING),
-    getSettingValue(GOOGLE_CALENDAR_EVENT_DESCRIPTION_TEMPLATE_SETTING)
+    getSettingValue(GOOGLE_CALENDAR_ID_SETTING, tenantId),
+    getSettingValue(GOOGLE_CALENDAR_EVENT_DESCRIPTION_TEMPLATE_SETTING, tenantId)
   ])
 
   return {

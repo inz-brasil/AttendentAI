@@ -20,7 +20,7 @@ import {
   Workflow
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { CalendarStatus, Setting, WacliProcessStatus } from '../../../lib/api'
+import type { CalendarStatus, Setting, Tenant, WacliProcessStatus } from '../../../lib/api'
 import { api } from '../../../lib/api'
 import { languages } from '../../../lib/i18n'
 import { useUiStore, type LanguageCode, type ThemeMode } from '../../../lib/ui-store'
@@ -39,11 +39,12 @@ const configSections = [
 ] as const
 
 type ConfigSectionName = typeof configSections[number]
-type SettingsTab = 'onboarding' | 'appearance' | 'business' | 'tenants' | ConfigSectionName | 'blacklist'
+type SettingsTab = 'onboarding' | 'appearance' | 'business' | 'tenants' | ConfigSectionName | 'blacklist' | 'tenant_manager'
 
 interface SettingsClientProps {
   initialSettings: Setting[]
   initialCalendarStatus: CalendarStatus
+  tenantId?: string
 }
 
 interface SettingsNavItem {
@@ -75,6 +76,7 @@ const settingsNav: SettingsNavItem[] = [
   { id: 'onboarding', icon: Workflow },
   { id: 'appearance', icon: Eye },
   { id: 'business', icon: Building2 },
+  { id: 'tenant_manager', icon: Building2 },
   { id: 'evolution_instances', icon: PlugZap },
   { id: 'automation', icon: Bot },
   { id: 'queue', icon: Database },
@@ -115,13 +117,15 @@ function isConfigSection(tab: SettingsTab): tab is ConfigSectionName {
  * @param props Dados legados mantidos para compatibilidade da página.
  * @returns UI de configuração.
  */
-export function SettingsClient(_props: SettingsClientProps): JSX.Element {
+export function SettingsClient({ tenantId = 'default' }: SettingsClientProps): JSX.Element {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
   const [selectedTab, setSelectedTab] = useState<SettingsTab>('onboarding')
   const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({})
   const [blacklistPhone, setBlacklistPhone] = useState('')
   const [blacklistReason, setBlacklistReason] = useState('')
+  const [newTenantId, setNewTenantId] = useState('')
+  const [newTenantName, setNewTenantName] = useState('')
   const [testNumber, setTestNumber] = useState('')
   const [testText, setTestText] = useState('')
   const [channelDraft, setChannelDraft] = useState<ChannelItem>({
@@ -145,13 +149,13 @@ export function SettingsClient(_props: SettingsClientProps): JSX.Element {
 
   const configQueries = useQueries({
     queries: configSections.map((section) => ({
-      queryKey: ['config', section],
-      queryFn: () => api.configSection(section)
+      queryKey: ['config', section, tenantId],
+      queryFn: () => api.configSection(section, tenantId)
     }))
   })
   const blacklistQuery = useQuery({
-    queryKey: ['blacklist'],
-    queryFn: () => api.blacklist()
+    queryKey: ['blacklist', tenantId],
+    queryFn: () => api.blacklist(tenantId)
   })
   const wacliQuery = useQuery({
     queryKey: ['wacli', 'status'],
@@ -181,23 +185,40 @@ export function SettingsClient(_props: SettingsClientProps): JSX.Element {
 
   const updateConfigMutation = useMutation({
     mutationFn: (payload: { section: ConfigSectionName; data: Record<string, unknown> }) =>
-      api.updateConfigSection(payload.section, payload.data),
+      api.updateConfigSection(payload.section, payload.data, tenantId),
     onSuccess: async (_, variables) => {
       setDrafts((current) => ({ ...current, [variables.section]: {} }))
-      await queryClient.invalidateQueries({ queryKey: ['config', variables.section] })
+      await queryClient.invalidateQueries({ queryKey: ['config', variables.section, tenantId] })
     }
   })
   const addBlacklistMutation = useMutation({
-    mutationFn: () => api.addBlacklist({ phone: blacklistPhone, reason: blacklistReason || 'manual_admin', duration_minutes: null }),
+    mutationFn: () => api.addBlacklist({ phone: blacklistPhone, reason: blacklistReason || 'manual_admin', duration_minutes: null, tenant_id: tenantId }),
     onSuccess: async () => {
       setBlacklistPhone('')
       setBlacklistReason('')
-      await queryClient.invalidateQueries({ queryKey: ['blacklist'] })
+      await queryClient.invalidateQueries({ queryKey: ['blacklist', tenantId] })
     }
   })
   const removeBlacklistMutation = useMutation({
-    mutationFn: (phone: string) => api.removeBlacklist(phone),
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['blacklist'] })
+    mutationFn: (phone: string) => api.removeBlacklist(phone, tenantId),
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['blacklist', tenantId] })
+  })
+
+  const tenantsQuery = useQuery({
+    queryKey: ['tenants'],
+    queryFn: () => api.tenants()
+  })
+  const createTenantMutation = useMutation({
+    mutationFn: () => api.createTenant({ id: newTenantId.trim() || undefined, name: newTenantName.trim() }),
+    onSuccess: async () => {
+      setNewTenantId('')
+      setNewTenantName('')
+      await queryClient.invalidateQueries({ queryKey: ['tenants'] })
+    }
+  })
+  const deactivateTenantMutation = useMutation({
+    mutationFn: (id: string) => api.deactivateTenant(id),
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['tenants'] })
   })
   const testSendMutation = useMutation({
     mutationFn: () => api.testEvolutionSend({ number: testNumber, text: testText })
@@ -403,6 +424,19 @@ export function SettingsClient(_props: SettingsClientProps): JSX.Element {
               onAdd={() => addBlacklistMutation.mutate()}
               onRemove={(phone) => removeBlacklistMutation.mutate(phone)}
               disabled={addBlacklistMutation.isPending || removeBlacklistMutation.isPending}
+            />
+          )}
+
+          {selectedTab === 'tenant_manager' && (
+            <TenantManagerPanel
+              tenants={tenantsQuery.data ?? []}
+              newId={newTenantId}
+              newName={newTenantName}
+              onIdChange={setNewTenantId}
+              onNameChange={setNewTenantName}
+              onCreate={() => createTenantMutation.mutate()}
+              onDeactivate={(id) => deactivateTenantMutation.mutate(id)}
+              disabled={createTenantMutation.isPending || deactivateTenantMutation.isPending}
             />
           )}
         </div>
@@ -794,6 +828,80 @@ function BlacklistPanel({
             </button>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function TenantManagerPanel({
+  tenants,
+  newId,
+  newName,
+  disabled,
+  onIdChange,
+  onNameChange,
+  onCreate,
+  onDeactivate
+}: {
+  tenants: Tenant[]
+  newId: string
+  newName: string
+  disabled: boolean
+  onIdChange: (value: string) => void
+  onNameChange: (value: string) => void
+  onCreate: () => void
+  onDeactivate: (id: string) => void
+}): JSX.Element {
+  return (
+    <div className="surface rounded-2xl p-5">
+      <SectionHeader icon={Building2} title="Gerenciar Tenants" description="Crie e gerencie portfólios/clientes isolados. Cada tenant tem dados próprios." />
+      <div className="mt-4 grid gap-2 md:grid-cols-[1fr_2fr_auto]">
+        <input
+          value={newId}
+          onChange={(e) => onIdChange(e.target.value)}
+          className="field-input font-mono"
+          placeholder="id (ex: cliente_abc)"
+        />
+        <input
+          value={newName}
+          onChange={(e) => onNameChange(e.target.value)}
+          className="field-input"
+          placeholder="Nome do tenant"
+        />
+        <button
+          type="button"
+          disabled={!newName.trim() || disabled}
+          onClick={onCreate}
+          className="save-btn"
+        >
+          Criar
+        </button>
+      </div>
+      <div className="mt-4 divide-y divide-line">
+        {tenants.map((tenant) => (
+          <div key={tenant.id} className="flex min-h-14 items-center justify-between gap-3 py-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="truncate font-mono text-sm">{tenant.id}</span>
+                {!tenant.is_active && <span className="rounded bg-elevated px-1.5 py-0.5 text-xs text-muted">inativo</span>}
+              </div>
+              <div className="truncate text-xs text-muted">{tenant.name}</div>
+            </div>
+            {tenant.id !== 'default' && tenant.is_active && (
+              <button
+                type="button"
+                onClick={() => onDeactivate(tenant.id)}
+                disabled={disabled}
+                className="focus-ring rounded-xl bg-elevated px-3 py-2 text-sm text-muted hover:text-danger"
+              >
+                Desativar
+              </button>
+            )}
+          </div>
+        ))}
+        {tenants.length === 0 && (
+          <p className="py-6 text-center text-sm text-muted">Nenhum tenant cadastrado</p>
+        )}
       </div>
     </div>
   )
