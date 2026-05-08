@@ -259,7 +259,82 @@ export class VaultManager {
     const defaults: Record<string, string> = {
       'conhecimento-base.md': `# Conhecimento Base\n\nInsira aqui as informações do negócio (FAQ, produtos, políticas) que o agente deve conhecer.\n`,
       'politicas.md': `# Políticas\n\nDescreva as políticas da empresa: atendimento, reembolso, SLA, etc.\n`,
-      'scripts-vendas.md': `# Scripts de Vendas\n\nTemplates e abordagens recomendadas para conversas de vendas.\n`
+      'scripts-vendas.md': `# Scripts de Vendas\n\nTemplates e abordagens recomendadas para conversas de vendas.\n`,
+      'agencia-marketing.md': `# Base de Conhecimento Comercial — Agência de Marketing Digital
+
+## Serviços Oferecidos
+- Gestão de tráfego pago (Meta Ads, Google Ads, TikTok Ads)
+- SEO e posicionamento orgânico
+- Criação de conteúdo e copywriting
+- Gestão de redes sociais
+- Automação de marketing e CRM
+- Criação de landing pages e funis de vendas
+
+## Dados do Mercado Brasileiro (2024)
+- Mercado de marketing digital no Brasil: R$ 37,9 bilhões
+- 183 milhões de usuários de internet no país
+- Taxa de conversão média: 3,15%
+- ROI médio Google Ads: 200% (R$ 2 de retorno por R$ 1 investido)
+- ROI médio Meta Ads: 150-180%
+- 78% das empresas com marketing digital relatam crescimento
+
+## Custo Comparativo: Equipe Interna vs Agência
+**Equipe interna mínima (mensalidade):**
+- Gestor de tráfego: R$ 5.500
+- Social media: R$ 3.200
+- Designer: R$ 4.500
+- Analista SEO: R$ 4.800
+- Redator: R$ 3.500
+- Ferramentas (GA4, RD Station, etc.): R$ 1.440
+- **Total: R$ 22.940–32.940/mês + encargos trabalhistas**
+
+**Agência especializada:** R$ 3.000–15.000/mês completo
+
+## Quebra de Objeções Mais Comuns
+
+### "Já tentei e não funcionou"
+→ Pergunte o que foi feito. Analise as causas reais. Marketing que não funcionou = estratégia errada, não o canal.
+
+### "É muito caro"
+→ Compare com equipe interna (quadro acima). Calcule ROI: R$ 50k/mês de faturamento + 1% de conversão adicional paga todo o investimento.
+
+### "Quero fazer interno"
+→ Mostre o custo real de equipe. Pergunte se têm capacidade de escalar com qualidade. Ofereça parceria ou consultoria.
+
+### "Não tenho budget agora"
+→ Pergunte quanto perde por mês sem escalar. Marketing especializado retorna 2-3x mais rápido que equipe interna iniciante.
+
+### "Preciso ver resultados antes"
+→ Mostre cases. Proponha meta clara com prazo de 90 dias para primeiros resultados mensuráveis.
+
+### "Já tenho agência"
+→ Pergunte se está satisfeito com os resultados. Se não, ofereça auditoria gratuita das campanhas atuais.
+
+### "Não sei se é o momento certo"
+→ Pergunte qual seria o momento certo. Mostre que concorrentes estão crescendo com marketing agora.
+
+## Perguntas de Diagnóstico por Etapa
+
+**Abertura (topo):**
+- "Com quem estou falando? E qual empresa?"
+- "O que te fez entrar em contato hoje?"
+
+**Diagnóstico (meio):**
+- "Qual é o maior desafio de marketing que vocês enfrentam hoje?"
+- "Vocês já investem em tráfego pago ou é mais orgânico?"
+- "Têm uma equipe interna de marketing ou é tudo terceirizado?"
+
+**Contexto (fundo):**
+- "Qual é o ticket médio de vocês?"
+- "Qual é o objetivo de faturamento para os próximos 6 meses?"
+- "Já trabalharam com agência antes? Como foi?"
+
+## Proposta de Reunião
+Duração ideal: 30 minutos
+Formato: videoconferência ou presencial
+Participantes necessários: decisor + profissional de marketing (se houver)
+Objetivo: diagnóstico gratuito + plano de ação personalizado
+`
     }
     for (const [name, content] of Object.entries(defaults)) {
       const fp = join(globalPath, name)
