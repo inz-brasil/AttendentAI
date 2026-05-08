@@ -398,5 +398,15 @@ export const api = {
   updateTenant: (id: string, data: { name?: string; description?: string; is_active?: boolean }) =>
     request<Tenant>(`/api/tenants/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
   deactivateTenant: (id: string) =>
-    request<{ success: boolean }>(`/api/tenants/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    request<{ success: boolean }>(`/api/tenants/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  gestorAuth: (tenantId: string, password: string) =>
+    request<{ valid: boolean; tenant_id: string }>('/api/gestor/auth', {
+      method: 'POST',
+      body: JSON.stringify({ tenant_id: tenantId, password })
+    }),
+  sendMessage: (phone: string, text: string, tenantId = 'default') =>
+    request<{ success: boolean; message_id: string | null }>(
+      `/api/leads/${encodeURIComponent(phone)}/send-message?tenant_id=${encodeURIComponent(tenantId)}`,
+      { method: 'POST', body: JSON.stringify({ text }) }
+    )
 }

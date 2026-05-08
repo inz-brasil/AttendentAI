@@ -1,9 +1,36 @@
-// middleware.ts — Protege rotas do dashboard por cookie httpOnly
+// middleware.ts — Protege rotas do dashboard admin e do painel do gestor
 import { NextResponse, type NextRequest } from 'next/server'
 import { authCookieName, verifyAuthToken } from './lib/auth'
+import { gestorCookieName, verifyGestorToken } from './lib/gestor-auth'
 
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl
+
+  // ── Painel do gestor ─────────────────────────────────────────────────────
+  if (pathname.startsWith('/gestor')) {
+    const isGestorLogin = pathname === '/gestor/login'
+    const session = await verifyGestorToken(request.cookies.get(gestorCookieName)?.value)
+
+    if (!session && !isGestorLogin) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/gestor/login'
+      url.searchParams.set('next', pathname)
+      return NextResponse.redirect(url)
+    }
+
+    if (session && isGestorLogin) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/gestor'
+      return NextResponse.redirect(url)
+    }
+
+    // Injeta tenant_id como header para server components lerem via headers()
+    const response = NextResponse.next()
+    if (session) response.headers.set('x-gestor-tenant', session.tenant_id)
+    return response
+  }
+
+  // ── Painel admin ─────────────────────────────────────────────────────────
   const isLogin = pathname === '/login'
   const isAuthenticated = await verifyAuthToken(request.cookies.get(authCookieName)?.value)
 

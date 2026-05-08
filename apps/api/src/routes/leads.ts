@@ -1,11 +1,16 @@
 // leads.ts — Expõe endpoints CRUD básicos para leads
 import { and, count, desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import pino from 'pino'
 import { z } from 'zod'
 import { env } from '../config/env'
+import { getSettingValue } from '../config/dashboard-config'
 import { db } from '../db/client'
 import { conversations, leadMemoryMeta, leads, messageEvents, messages, settings, type LeadStatus } from '../db/schema'
+import { EvolutionSender } from '../delivery/evolution-sender'
 import { VaultManager } from '../vault-manager/manager'
+
+const log = pino({ name: 'leads-route' })
 
 const leadParamsSchema = z.object({ phone: z.string().min(1) })
 const tenantQuerySchema = z.object({ tenant_id: z.string().min(1).default('default') })
@@ -222,5 +227,39 @@ export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
     }
     request.log.info({ phone, tenant_id: query.tenant_id }, 'lead deleted')
     return { success: true }
+  })
+
+  // Envia mensagem como human_agent (painel do gestor)
+  app.post('/api/leads/:phone/send-message', async (request, reply) => {
+    const params = leadParamsSchema.parse(request.params)
+    const query = tenantQuerySchema.parse(request.query)
+    const body = z.object({ text: z.string().min(1).max(4096) }).parse(request.body)
+
+    const evolutionUrl = (await getSettingValue('evolution_base_url', query.tenant_id)) ?? env.EVOLUTION_API_URL ?? ''
+    const evolutionKey = (await getSettingValue('evolution_api_key', query.tenant_id)) ?? env.EVOLUTION_API_KEY ?? ''
+    const evolutionInstance = (await getSettingValue('evolution_instance', query.tenant_id)) ?? env.EVOLUTION_INSTANCE ?? ''
+
+    if (!evolutionUrl || !evolutionInstance) {
+      return reply.code(503).send({ error: 'Evolution not configured', code: 'EVOLUTION_NOT_CONFIGURED' })
+    }
+
+    const sender = new EvolutionSender({ baseUrl: evolutionUrl, apiKey: evolutionKey, instance: evolutionInstance })
+    const result = await sender.sendText({ remoteJid: params.phone, text: body.text })
+
+    // Salva no histórico como human_agent
+    await db.insert(messageEvents).values({
+      tenant_id: query.tenant_id,
+      lead_phone: params.phone,
+      direction: 'outbound',
+      sender_type: 'human_agent',
+      role: 'human_agent',
+      content: body.text,
+      delivery_status: 'sent',
+      whatsapp_timestamp: Math.floor(Date.now() / 1000),
+      external_message_id: result.externalMessageId
+    })
+
+    log.info({ phone: params.phone, tenant_id: query.tenant_id }, 'human_agent message sent')
+    return { success: true, message_id: result.externalMessageId }
   })
 }
