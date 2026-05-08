@@ -167,8 +167,11 @@ export class QueryEngine {
       return this.processInternalAssistant(payload, runtimeContext, startedAt, runId, wacliContext.prompt_context)
     }
 
-    const lead = await getOrCreateLead(payload.phone, payload.name, payload.contact_info)
-    const memory = await loadMemory(payload.phone)
+    // Lead e memória em paralelo (duas queries independentes no banco)
+    const [lead, memory] = await Promise.all([
+      getOrCreateLead(payload.phone, payload.name, payload.contact_info),
+      loadMemory(payload.phone)
+    ])
     await recordTrace({
       phone: payload.phone,
       runId,
@@ -183,11 +186,25 @@ export class QueryEngine {
       }
     })
 
-    const classification = await this.classifier.run({
-      phone: payload.phone,
-      message: payload.message,
-      history_summary: memory.history_summary
-    })
+    // Classificador e identificador em paralelo (LLM calls independentes)
+    const [classification, identification] = await Promise.all([
+      this.classifier.run({
+        phone: payload.phone,
+        message: payload.message,
+        history_summary: memory.history_summary
+      }),
+      this.identifier.run({
+        phone: payload.phone,
+        message: payload.message,
+        current_lead: {
+          name: lead?.name ?? null,
+          email: lead?.email ?? null,
+          city: lead?.city ?? null,
+          status: lead?.status ?? null,
+          tags: lead?.tags ?? null
+        }
+      })
+    ])
     await recordTrace({
       phone: payload.phone,
       runId,
@@ -195,18 +212,6 @@ export class QueryEngine {
       eventType: 'agent_output',
       title: 'Classificação concluída',
       data: classification
-    })
-
-    const identification = await this.identifier.run({
-      phone: payload.phone,
-      message: payload.message,
-      current_lead: {
-        name: lead?.name ?? null,
-        email: lead?.email ?? null,
-        city: lead?.city ?? null,
-        status: lead?.status ?? null,
-        tags: lead?.tags ?? null
-      }
     })
     await recordTrace({
       phone: payload.phone,
@@ -244,8 +249,13 @@ export class QueryEngine {
     }
     const refreshedMemory = await loadMemory(payload.phone)
     const liveSummary = this.buildLiveConversationSummary(payload, refreshedLead?.name ?? payload.name, refreshedMemory.recent_messages)
-    await saveConversationSummary(payload.phone, refreshedLead?.name ?? payload.name, liveSummary)
-    const vaultContext = await this.memoryAgent.fetchRelevant(payload.phone, classification.intent)
+
+    // Salvar resumo, buscar vault e carregar skills em paralelo
+    const [, vaultContext, skillCandidates] = await Promise.all([
+      saveConversationSummary(payload.phone, refreshedLead?.name ?? payload.name, liveSummary),
+      this.memoryAgent.fetchRelevant(payload.phone, classification.intent),
+      this.loadSkillCandidates('responder')
+    ])
     await recordTrace({
       phone: payload.phone,
       runId,
@@ -258,7 +268,6 @@ export class QueryEngine {
         context_preview: truncateTraceText(vaultContext, 800)
       }
     })
-    const skillCandidates = await this.loadSkillCandidates('responder')
     const routedSkills = await this.routeSkills({
       phone: payload.phone,
       runId,
@@ -326,10 +335,14 @@ export class QueryEngine {
       }
     })
 
-    await saveMessage(payload.phone, 'user', payload.message, {
-      message_type: payload.message_type,
-      intent: classification.intent
-    })
+    // Salva mensagem do usuário em paralelo com verificação de MCP (não bloqueia o responder)
+    const [, mcpEnabled] = await Promise.all([
+      saveMessage(payload.phone, 'user', payload.message, {
+        message_type: payload.message_type,
+        intent: classification.intent
+      }),
+      this.isMcpEnabled()
+    ])
     await recordTrace({
       phone: payload.phone,
       runId,
@@ -341,8 +354,6 @@ export class QueryEngine {
         intent: classification.intent
       }
     })
-
-    const mcpEnabled = await this.isMcpEnabled()
     const shouldRunScheduling = this.shouldRunSchedulingAgent(
       classification.intent,
       payload.message,

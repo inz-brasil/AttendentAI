@@ -66,8 +66,8 @@ const vaultSchema = z.object({
   objections: z.array(z.string()).default([]),
   appointments: z.array(z.object({
     date: z.string(),
-    status: z.enum(['scheduled', 'cancelled', 'completed']),
-    notes: z.string()
+    status: z.enum(['scheduled', 'cancelled', 'completed']).default('scheduled'),
+    notes: z.string().default('')
   })).default([]),
   conversation_summary: z.string(),
   last_intent: z.string().nullable(),
