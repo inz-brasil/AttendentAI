@@ -14,23 +14,29 @@ const DEFAULT_PAUSE_MINUTES = 120
  * Ativa pausa de atendimento humano com TTL configurável.
  * @param phone Telefone normalizado.
  * @param source Origem da detecção.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Expiração da pausa.
  */
 export async function activateHumanTakeoverPause(
   phone: string,
-  source = 'evolution'
+  source = 'evolution',
+  tenantId = 'default'
 ): Promise<{ phone: string; expiresAt: Date }> {
-  const minutes = await getHumanTakeoverPauseMinutes()
+  const minutes = await getHumanTakeoverPauseMinutes(tenantId)
   const expiresAt = new Date(Date.now() + minutes * 60_000)
-  const [existing] = await db.select().from(automationBlacklist).where(eq(automationBlacklist.phone, phone)).limit(1)
+  const [existing] = await db
+    .select()
+    .from(automationBlacklist)
+    .where(and(eq(automationBlacklist.tenant_id, tenantId), eq(automationBlacklist.phone, phone)))
+    .limit(1)
 
   if (existing) {
     await db
       .update(automationBlacklist)
       .set({ reason: 'human_takeover', source, expires_at: expiresAt, updated_at: new Date() })
-      .where(eq(automationBlacklist.phone, phone))
+      .where(and(eq(automationBlacklist.tenant_id, tenantId), eq(automationBlacklist.phone, phone)))
   } else {
-    await db.insert(automationBlacklist).values({ phone, reason: 'human_takeover', source, expires_at: expiresAt })
+    await db.insert(automationBlacklist).values({ phone, tenant_id: tenantId, reason: 'human_takeover', source, expires_at: expiresAt })
   }
 
   return { phone, expiresAt }
@@ -39,16 +45,21 @@ export async function activateHumanTakeoverPause(
 /**
  * Consulta pausa de atendimento humano ativa e limpa expirada.
  * @param phone Telefone normalizado.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Estado da pausa.
  */
-export async function getHumanTakeoverState(phone: string): Promise<HumanTakeoverState> {
-  const [row] = await db.select().from(automationBlacklist).where(eq(automationBlacklist.phone, phone)).limit(1)
+export async function getHumanTakeoverState(phone: string, tenantId = 'default'): Promise<HumanTakeoverState> {
+  const [row] = await db
+    .select()
+    .from(automationBlacklist)
+    .where(and(eq(automationBlacklist.tenant_id, tenantId), eq(automationBlacklist.phone, phone)))
+    .limit(1)
   if (row?.reason !== 'human_takeover') {
     return { active: false, expiresAt: null }
   }
 
   if (!row.expires_at || row.expires_at.getTime() <= Date.now()) {
-    await db.delete(automationBlacklist).where(eq(automationBlacklist.phone, phone))
+    await db.delete(automationBlacklist).where(and(eq(automationBlacklist.tenant_id, tenantId), eq(automationBlacklist.phone, phone)))
     return { active: false, expiresAt: null }
   }
 
@@ -57,13 +68,14 @@ export async function getHumanTakeoverState(phone: string): Promise<HumanTakeove
 
 /**
  * Lê o TTL configurado para pausa humana.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Minutos de pausa.
  */
-export async function getHumanTakeoverPauseMinutes(): Promise<number> {
+export async function getHumanTakeoverPauseMinutes(tenantId = 'default'): Promise<number> {
   const raw = await getFirstSettingValue([
     'human_takeover_pause_minutes',
     'automation_blacklist_default_minutes'
-  ], String(DEFAULT_PAUSE_MINUTES))
+  ], String(DEFAULT_PAUSE_MINUTES), tenantId)
   const minutes = Number(raw)
   return Math.max(1, Number.isFinite(minutes) ? minutes : DEFAULT_PAUSE_MINUTES)
 }

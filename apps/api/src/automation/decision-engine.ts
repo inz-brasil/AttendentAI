@@ -1,5 +1,5 @@
 // decision-engine.ts — Decide de forma determinística se a automação deve processar e responder
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '../db/client'
 import { settings } from '../db/schema'
 import { traceEmitter } from '../observability/trace-emitter'
@@ -65,11 +65,11 @@ export class AutomationDecisionEngine {
   }
 
   private async evaluate(input: AutomationDecisionInput): Promise<AutomationDecision> {
-    if (!(await this.isAutomationEnabled())) {
+    if (!(await this.isAutomationEnabled(input.tenantId))) {
       return blocked('automation_disabled')
     }
 
-    const blacklist = await getBlacklistState(input.event.phone)
+    const blacklist = await getBlacklistState(input.event.phone, input.tenantId)
     if (blacklist.active && blacklist.reason === 'blacklist') {
       return blocked('blacklist', blacklist.expiresAt)
     }
@@ -78,12 +78,12 @@ export class AutomationDecisionEngine {
       return blocked('manual_pause', blacklist.expiresAt)
     }
 
-    const humanTakeover = await getHumanTakeoverState(input.event.phone)
+    const humanTakeover = await getHumanTakeoverState(input.event.phone, input.tenantId)
     if (humanTakeover.active) {
       return blocked('human_takeover', humanTakeover.expiresAt)
     }
 
-    const schedule = await getScheduleDecision()
+    const schedule = await getScheduleDecision(new Date(), input.tenantId)
     if (schedule.enabled && !schedule.insideWindow && !schedule.replyOutsideSchedule) {
       return blocked('outside_schedule')
     }
@@ -107,8 +107,8 @@ export class AutomationDecisionEngine {
     return input.transcript?.nextAction === 'update_existing' || input.transcript?.classification.senderType === 'bot'
   }
 
-  private async isAutomationEnabled(): Promise<boolean> {
-    const [setting] = await db.select().from(settings).where(eq(settings.key, 'automation_enabled')).limit(1)
+  private async isAutomationEnabled(tenantId = 'default'): Promise<boolean> {
+    const [setting] = await db.select().from(settings).where(and(eq(settings.tenant_id, tenantId), eq(settings.key, 'automation_enabled'))).limit(1)
     return (setting?.value ?? 'true').trim().toLowerCase() !== 'false'
   }
 }

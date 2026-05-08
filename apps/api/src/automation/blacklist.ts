@@ -15,19 +15,21 @@ const manualPauseReasons = ['manual_pause']
 /**
  * Verifica bloqueio manual ou blacklist configurada para um telefone.
  * @param phone Telefone normalizado.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Estado de blacklist/manual pause.
  */
-export async function getBlacklistState(phone: string): Promise<BlacklistState> {
-  if (await isPhoneInConfiguredBlacklist(phone)) {
+export async function getBlacklistState(phone: string, tenantId = 'default'): Promise<BlacklistState> {
+  if (await isPhoneInConfiguredBlacklist(phone, tenantId)) {
     return { active: true, reason: 'blacklist', expiresAt: null }
   }
 
   const now = new Date()
-  await cleanupExpiredManualBlocks(phone, now)
+  await cleanupExpiredManualBlocks(phone, now, tenantId)
   const [row] = await db
     .select()
     .from(automationBlacklist)
     .where(and(
+      eq(automationBlacklist.tenant_id, tenantId),
       eq(automationBlacklist.phone, phone),
       gt(automationBlacklist.expires_at, now),
       inArray(automationBlacklist.reason, [...blacklistReasons, ...manualPauseReasons])
@@ -42,24 +44,25 @@ export async function getBlacklistState(phone: string): Promise<BlacklistState> 
   return { active: true, reason, expiresAt: row.expires_at ?? null }
 }
 
-async function isPhoneInConfiguredBlacklist(phone: string): Promise<boolean> {
-  const configured = await getSettingValue('blacklist', '')
+async function isPhoneInConfiguredBlacklist(phone: string, tenantId = 'default'): Promise<boolean> {
+  const configured = await getSettingValue('blacklist', '', tenantId)
   const phones = parsePhoneList(configured)
   return phones.includes(phone)
 }
 
-async function cleanupExpiredManualBlocks(phone: string, now: Date): Promise<void> {
+async function cleanupExpiredManualBlocks(phone: string, now: Date, tenantId = 'default'): Promise<void> {
   const rows = await db
     .select()
     .from(automationBlacklist)
     .where(and(
+      eq(automationBlacklist.tenant_id, tenantId),
       eq(automationBlacklist.phone, phone),
       inArray(automationBlacklist.reason, [...blacklistReasons, ...manualPauseReasons])
     ))
 
   for (const row of rows) {
     if (row.expires_at && row.expires_at.getTime() <= now.getTime()) {
-      await db.delete(automationBlacklist).where(eq(automationBlacklist.phone, row.phone))
+      await db.delete(automationBlacklist).where(and(eq(automationBlacklist.tenant_id, tenantId), eq(automationBlacklist.phone, row.phone)))
     }
   }
 }
@@ -88,7 +91,7 @@ function parsePhoneList(raw: string): string[] {
     .filter(Boolean)
 }
 
-async function getSettingValue(key: string, fallback: string, tenantId = 'default'): Promise<string> {
+async function getSettingValue(key: string, fallback = '', tenantId = 'default'): Promise<string> {
   const [setting] = await db
     .select()
     .from(settings)
