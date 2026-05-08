@@ -62,6 +62,7 @@ function isLiveMessage(event: LiveEvent): event is LiveEvent & LiveMessage {
 
 interface ConversationsClientProps {
   initialMessages: ConversationMessage[]
+  tenantId?: string
 }
 
 function buildInitialFeed(messages: ConversationMessage[]): ConvEntry[] {
@@ -97,7 +98,7 @@ function buildInitialFeed(messages: ConversationMessage[]): ConvEntry[] {
  * @param props Mensagens iniciais do RSC.
  * @returns Feed de conversas com filtros e expansão de chat.
  */
-export function ConversationsClient({ initialMessages }: ConversationsClientProps): JSX.Element {
+export function ConversationsClient({ initialMessages, tenantId = 'default' }: ConversationsClientProps): JSX.Element {
   const { status: wsStatus, lastEvent } = useWebSocket('/ws')
 
   const [feed, setFeed] = useState<ConvEntry[]>(() => buildInitialFeed(initialMessages))

@@ -18,6 +18,7 @@ import {
   Settings,
   Users,
   X,
+  Building2,
   type LucideIcon
 } from 'lucide-react'
 import { useUiStore } from '../lib/ui-store'
@@ -42,6 +43,59 @@ const navItems: NavItem[] = [
 function isActivePath(pathname: string, href: string): boolean {
   if (href === '/') return pathname === '/'
   return pathname === href || pathname.startsWith(`${href}/`)
+}
+
+function TenantSelector({ collapsed }: { collapsed: boolean }): JSX.Element {
+  const tenantId = useUiStore((state) => state.tenantId)
+  const setTenantId = useUiStore((state) => state.setTenantId)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(tenantId)
+
+  function commit(): void {
+    setTenantId(draft)
+    setEditing(false)
+  }
+
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        className="focus-ring flex h-11 w-11 items-center justify-center rounded-xl border border-line bg-canvas text-muted hover:text-ink"
+        title={tenantId}
+        onClick={() => setEditing(true)}
+      >
+        <Building2 className="h-4 w-4" strokeWidth={1.8} />
+      </button>
+    )
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-line bg-canvas px-3 py-2">
+        <Building2 className="h-4 w-4 shrink-0 text-muted" strokeWidth={1.8} />
+        <input
+          autoFocus
+          className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-muted"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
+          placeholder="tenant id..."
+        />
+      </div>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      className="focus-ring flex min-h-11 w-full items-center gap-3 rounded-xl border border-line bg-canvas px-3 text-left text-sm text-muted hover:bg-elevated hover:text-ink"
+      onClick={() => { setDraft(tenantId); setEditing(true) }}
+    >
+      <Building2 className="h-4 w-4 shrink-0" strokeWidth={1.8} />
+      <span className="min-w-0 flex-1 truncate">{tenantId}</span>
+    </button>
+  )
 }
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }): JSX.Element {
@@ -93,7 +147,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }): JSX.Elemen
         })}
       </nav>
 
-      <div className="mt-auto px-1 pb-2">
+      <div className="mt-auto space-y-2 px-1 pb-2">
+        <div className={sidebarCollapsed ? 'flex justify-center' : ''}>
+          <TenantSelector collapsed={sidebarCollapsed} />
+        </div>
         <Link
           href="/settings"
           onClick={onNavigate}

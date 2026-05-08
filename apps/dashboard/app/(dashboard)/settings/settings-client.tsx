@@ -44,6 +44,7 @@ type SettingsTab = 'onboarding' | 'appearance' | 'business' | 'tenants' | Config
 interface SettingsClientProps {
   initialSettings: Setting[]
   initialCalendarStatus: CalendarStatus
+  tenantId?: string
 }
 
 interface SettingsNavItem {
@@ -115,7 +116,7 @@ function isConfigSection(tab: SettingsTab): tab is ConfigSectionName {
  * @param props Dados legados mantidos para compatibilidade da página.
  * @returns UI de configuração.
  */
-export function SettingsClient(_props: SettingsClientProps): JSX.Element {
+export function SettingsClient({ tenantId = 'default' }: SettingsClientProps): JSX.Element {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
   const [selectedTab, setSelectedTab] = useState<SettingsTab>('onboarding')
@@ -145,13 +146,13 @@ export function SettingsClient(_props: SettingsClientProps): JSX.Element {
 
   const configQueries = useQueries({
     queries: configSections.map((section) => ({
-      queryKey: ['config', section],
-      queryFn: () => api.configSection(section)
+      queryKey: ['config', section, tenantId],
+      queryFn: () => api.configSection(section, tenantId)
     }))
   })
   const blacklistQuery = useQuery({
-    queryKey: ['blacklist'],
-    queryFn: () => api.blacklist()
+    queryKey: ['blacklist', tenantId],
+    queryFn: () => api.blacklist(tenantId)
   })
   const wacliQuery = useQuery({
     queryKey: ['wacli', 'status'],
@@ -181,23 +182,23 @@ export function SettingsClient(_props: SettingsClientProps): JSX.Element {
 
   const updateConfigMutation = useMutation({
     mutationFn: (payload: { section: ConfigSectionName; data: Record<string, unknown> }) =>
-      api.updateConfigSection(payload.section, payload.data),
+      api.updateConfigSection(payload.section, payload.data, tenantId),
     onSuccess: async (_, variables) => {
       setDrafts((current) => ({ ...current, [variables.section]: {} }))
-      await queryClient.invalidateQueries({ queryKey: ['config', variables.section] })
+      await queryClient.invalidateQueries({ queryKey: ['config', variables.section, tenantId] })
     }
   })
   const addBlacklistMutation = useMutation({
-    mutationFn: () => api.addBlacklist({ phone: blacklistPhone, reason: blacklistReason || 'manual_admin', duration_minutes: null }),
+    mutationFn: () => api.addBlacklist({ phone: blacklistPhone, reason: blacklistReason || 'manual_admin', duration_minutes: null, tenant_id: tenantId }),
     onSuccess: async () => {
       setBlacklistPhone('')
       setBlacklistReason('')
-      await queryClient.invalidateQueries({ queryKey: ['blacklist'] })
+      await queryClient.invalidateQueries({ queryKey: ['blacklist', tenantId] })
     }
   })
   const removeBlacklistMutation = useMutation({
-    mutationFn: (phone: string) => api.removeBlacklist(phone),
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['blacklist'] })
+    mutationFn: (phone: string) => api.removeBlacklist(phone, tenantId),
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['blacklist', tenantId] })
   })
   const testSendMutation = useMutation({
     mutationFn: () => api.testEvolutionSend({ number: testNumber, text: testText })

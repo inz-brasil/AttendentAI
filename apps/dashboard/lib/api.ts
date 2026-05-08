@@ -284,25 +284,35 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const api = {
   health: () => request<{ status: string; timestamp: string; version: string }>('/health'),
-  leads: () => request<Lead[]>('/api/leads'),
-  lead: (phone: string) => request<Lead>(`/api/leads/${encodeURIComponent(phone)}`),
-  conversations: () => request<{ messages: ConversationMessage[] }>('/api/conversations'),
+  leads: (tenantId = 'default') => request<Lead[]>(`/api/leads?tenant_id=${encodeURIComponent(tenantId)}`),
+  lead: (phone: string, tenantId = 'default') =>
+    request<Lead>(`/api/leads/${encodeURIComponent(phone)}?tenant_id=${encodeURIComponent(tenantId)}`),
+  conversations: (tenantId = 'default') =>
+    request<{ messages: ConversationMessage[] }>(`/api/conversations?tenant_id=${encodeURIComponent(tenantId)}`),
   agents: () => request<Agent[]>('/api/agents'),
   agent: (id: string) => request<Agent>(`/api/agents/${encodeURIComponent(id)}`),
   agentSkills: (id: string) => request<AgentSkillRow[]>(`/api/agents/${encodeURIComponent(id)}/skills`),
   agentMetrics: (id: string) => request<AgentMetrics>(`/api/agents/${encodeURIComponent(id)}/metrics`),
   skills: () => request<Skill[]>('/api/skills'),
   skill: (id: string) => request<Skill>(`/api/skills/${encodeURIComponent(id)}`),
-  settings: () => request<Setting[]>('/api/settings'),
-  traces: () => request<{ traces: AgentTrace[] }>('/api/traces'),
-  traceContacts: () => request<{ contacts: TraceContact[] }>('/api/traces/contacts'),
-  traceRuns: (phone: string) => request<{ runs: TraceRun[] }>(`/api/traces/${encodeURIComponent(phone)}/runs`),
-  tracesByPhone: (phone: string) => request<{ traces: AgentTrace[] }>(`/api/traces/${encodeURIComponent(phone)}`),
-  vault: () => request<{ leads: Array<{ phone: string; folder: string; path: string; name: string }> }>('/api/vault'),
-  vaultFiles: (phone: string) => request<{ files: string[] }>(`/api/vault/${encodeURIComponent(phone)}/files`),
-  vaultFile: (phone: string, filename: string) =>
+  settings: (tenantId = 'default') => request<Setting[]>(`/api/settings?tenant_id=${encodeURIComponent(tenantId)}`),
+  traces: (tenantId = 'default') =>
+    request<{ traces: AgentTrace[] }>(`/api/traces?tenant_id=${encodeURIComponent(tenantId)}`),
+  traceContacts: (tenantId = 'default') =>
+    request<{ contacts: TraceContact[] }>(`/api/traces/contacts?tenant_id=${encodeURIComponent(tenantId)}`),
+  traceRuns: (phone: string, tenantId = 'default') =>
+    request<{ runs: TraceRun[] }>(`/api/traces/${encodeURIComponent(phone)}/runs?tenant_id=${encodeURIComponent(tenantId)}`),
+  tracesByPhone: (phone: string, tenantId = 'default') =>
+    request<{ traces: AgentTrace[] }>(`/api/traces/${encodeURIComponent(phone)}?tenant_id=${encodeURIComponent(tenantId)}`),
+  vault: (tenantId = 'default') =>
+    request<{ leads: Array<{ phone: string; folder: string; path: string; name: string }> }>(
+      `/api/vault?tenant_id=${encodeURIComponent(tenantId)}`
+    ),
+  vaultFiles: (phone: string, tenantId = 'default') =>
+    request<{ files: string[] }>(`/api/vault/${encodeURIComponent(phone)}/files?tenant_id=${encodeURIComponent(tenantId)}`),
+  vaultFile: (phone: string, filename: string, tenantId = 'default') =>
     request<{ filename: string; content: string }>(
-      `/api/vault/${encodeURIComponent(phone)}/files/${encodeURIComponent(filename)}`
+      `/api/vault/${encodeURIComponent(phone)}/files/${encodeURIComponent(filename)}?tenant_id=${encodeURIComponent(tenantId)}`
     ),
   getMcpServers: () => request<McpServer[]>('/api/mcp/servers'),
   getAgentMcpServers: (agentId: string) =>
@@ -331,24 +341,41 @@ export const api = {
   getWacliSyncOutput: () => request<WacliProcessStatus>('/api/wacli/sync/output'),
   stopWacliSync: () => request<{ success: boolean }>('/api/wacli/sync/stop', { method: 'POST' }),
   enableWacli: () => request<{ success: boolean }>('/api/wacli/enable', { method: 'POST' }),
-  disableWacli: () => request<{ success: boolean }>('/api/wacli/disable', { method: 'POST' })
-  ,
-  configSection: (section: string) => request<ConfigResponse>(`/api/config/${encodeURIComponent(section)}`),
-  updateConfigSection: (section: string, data: Record<string, unknown>) =>
-    request<ConfigResponse>(`/api/config/${encodeURIComponent(section)}`, {
+  disableWacli: () => request<{ success: boolean }>('/api/wacli/disable', { method: 'POST' }),
+  configSection: (section: string, tenantId = 'default') =>
+    request<ConfigResponse>(`/api/config/${encodeURIComponent(section)}?tenant_id=${encodeURIComponent(tenantId)}`),
+  updateConfigSection: (section: string, data: Record<string, unknown>, tenantId = 'default') =>
+    request<ConfigResponse>(`/api/config/${encodeURIComponent(section)}?tenant_id=${encodeURIComponent(tenantId)}`, {
       method: 'PUT',
       body: JSON.stringify(data)
     }),
   blacklist: (tenantId = 'default') => request<{ items: BlacklistEntry[] }>(`/api/blacklist?tenant_id=${encodeURIComponent(tenantId)}`),
   addBlacklist: (data: { tenant_id?: string; phone: string; reason?: string; duration_minutes?: number | null }) =>
     request<{ success: boolean; item: BlacklistEntry }>('/api/blacklist', { method: 'POST', body: JSON.stringify(data) }),
-  removeBlacklist: (phone: string) =>
-    request<{ success: boolean }>(`/api/blacklist/${encodeURIComponent(phone)}`, { method: 'DELETE' }),
+  removeBlacklist: (phone: string, tenantId = 'default') =>
+    request<{ success: boolean }>(`/api/blacklist/${encodeURIComponent(phone)}?tenant_id=${encodeURIComponent(tenantId)}`, { method: 'DELETE' }),
   leadTranscript: (phone: string, tenantId = 'default', limit = 50) =>
     request<{ messages: MessageEventRow[] }>(
       `/api/leads/${encodeURIComponent(phone)}/transcript?tenant_id=${encodeURIComponent(tenantId)}&limit=${limit}`
     ),
-  leadVault: (phone: string) => request<{ phone: string; vault: unknown }>(`/api/leads/${encodeURIComponent(phone)}/vault`),
+  leadVault: (phone: string, tenantId = 'default') =>
+    request<{ phone: string; files: Record<string, string | null> }>(
+      `/api/leads/${encodeURIComponent(phone)}/vault?tenant_id=${encodeURIComponent(tenantId)}`
+    ),
+  leadMemoryStats: (phone: string, tenantId = 'default') =>
+    request<{ total_messages: number; last_compaction_at: string | null; total_compactions: number; vault_files: string[] }>(
+      `/api/leads/${encodeURIComponent(phone)}/memory-stats?tenant_id=${encodeURIComponent(tenantId)}`
+    ),
+  deleteLeadHistory: (phone: string, tenantId = 'default') =>
+    request<{ success: boolean }>(
+      `/api/leads/${encodeURIComponent(phone)}/history?tenant_id=${encodeURIComponent(tenantId)}`,
+      { method: 'DELETE' }
+    ),
+  deleteLead: (phone: string, tenantId = 'default') =>
+    request<{ success: boolean }>(
+      `/api/leads/${encodeURIComponent(phone)}?tenant_id=${encodeURIComponent(tenantId)}`,
+      { method: 'DELETE' }
+    ),
   traceTimeline: (batchId: string, tenantId = 'default') =>
     request<{ traces: TraceEventRow[] }>(`/api/traces?batch_id=${encodeURIComponent(batchId)}&tenant_id=${encodeURIComponent(tenantId)}`),
   queueStatus: () => request<QueueStatus>('/api/queue/status'),

@@ -23,6 +23,7 @@ interface OpenFile {
 interface VaultClientProps {
   initialLeads: VaultLead[]
   globalFiles: string[]
+  tenantId?: string
 }
 
 const LEAD_FILES = ['memoria.md', 'historico.md', 'notas.md']
@@ -36,7 +37,7 @@ const FILE_ICON = '◦'
  * @param props Leads iniciais e arquivos globais.
  * @returns Interface explorador Vault.
  */
-export function VaultClient({ initialLeads, globalFiles: globalFilesProp }: VaultClientProps): JSX.Element {
+export function VaultClient({ initialLeads, globalFiles: globalFilesProp, tenantId = 'default' }: VaultClientProps): JSX.Element {
   const { toast } = useToast()
 
   // Defesas para garantir que nunca são undefined
@@ -72,7 +73,7 @@ export function VaultClient({ initialLeads, globalFiles: globalFilesProp }: Vaul
     setLoading(true)
     try {
       const res = await fetch(
-        `${API_BASE}/api/vault/${encodeURIComponent(phone)}/files/${encodeURIComponent(filename)}`,
+        `${API_BASE}/api/vault/${encodeURIComponent(phone)}/files/${encodeURIComponent(filename)}?tenant_id=${encodeURIComponent(tenantId)}`,
         { cache: 'no-store' }
       )
       if (!res.ok) throw new Error()
@@ -91,7 +92,7 @@ export function VaultClient({ initialLeads, globalFiles: globalFilesProp }: Vaul
     setLoading(true)
     try {
       const res = await fetch(
-        `${API_BASE}/api/vault/_global/files/${encodeURIComponent(filename)}`,
+        `${API_BASE}/api/vault/_global/files/${encodeURIComponent(filename)}?tenant_id=${encodeURIComponent(tenantId)}`,
         { cache: 'no-store' }
       )
       if (!res.ok) throw new Error()
@@ -109,9 +110,10 @@ export function VaultClient({ initialLeads, globalFiles: globalFilesProp }: Vaul
     if (!openFile) return
     setSaving(true)
     try {
+      const tq = `?tenant_id=${encodeURIComponent(tenantId)}`
       const url = openFile.phone === null
-        ? `${API_BASE}/api/vault/_global/files/${encodeURIComponent(openFile.filename)}`
-        : `${API_BASE}/api/vault/${encodeURIComponent(openFile.phone)}/files/${encodeURIComponent(openFile.filename)}`
+        ? `${API_BASE}/api/vault/_global/files/${encodeURIComponent(openFile.filename)}${tq}`
+        : `${API_BASE}/api/vault/${encodeURIComponent(openFile.phone)}/files/${encodeURIComponent(openFile.filename)}${tq}`
 
       const res = await fetch(url, {
         method: 'PUT',

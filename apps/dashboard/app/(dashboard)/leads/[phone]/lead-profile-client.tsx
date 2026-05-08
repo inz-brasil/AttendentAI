@@ -23,6 +23,7 @@ interface LeadProfileClientProps {
   initialMessages: Message[]
   vaultFiles: string[]
   phone: string
+  tenantId?: string
 }
 
 const STATUS_OPTIONS = ['novo', 'ativo', 'lead_quente', 'convertido', 'inativo'] as const
@@ -53,7 +54,8 @@ export function LeadProfileClient({
   initialLead,
   initialMessages,
   vaultFiles,
-  phone
+  phone,
+  tenantId = 'default'
 }: LeadProfileClientProps): JSX.Element {
   const router = useRouter()
   const { toast } = useToast()
@@ -88,7 +90,7 @@ export function LeadProfileClient({
     setLoadingVault(prev => ({ ...prev, [filename]: true }))
     try {
       const res = await fetch(
-        `${API_BASE}/api/vault/${encodeURIComponent(phone)}/files/${encodeURIComponent(filename)}`,
+        `${API_BASE}/api/vault/${encodeURIComponent(phone)}/files/${encodeURIComponent(filename)}?tenant_id=${encodeURIComponent(tenantId)}`,
         { cache: 'no-store' }
       )
       if (!res.ok) throw new Error('Erro ao carregar arquivo')
@@ -107,7 +109,7 @@ export function LeadProfileClient({
     setSavingVault(prev => ({ ...prev, [filename]: true }))
     try {
       const res = await fetch(
-        `${API_BASE}/api/vault/${encodeURIComponent(phone)}/files/${encodeURIComponent(filename)}`,
+        `${API_BASE}/api/vault/${encodeURIComponent(phone)}/files/${encodeURIComponent(filename)}?tenant_id=${encodeURIComponent(tenantId)}`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -135,7 +137,7 @@ export function LeadProfileClient({
         tags: draft.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
       }
       const res = await fetch(
-        `${API_BASE}/api/leads/${encodeURIComponent(phone)}`,
+        `${API_BASE}/api/leads/${encodeURIComponent(phone)}?tenant_id=${encodeURIComponent(tenantId)}`,
         { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
       )
       if (!res.ok) throw new Error()
@@ -154,7 +156,7 @@ export function LeadProfileClient({
   /** Apaga histórico */
   async function deleteHistory() {
     try {
-      const res = await fetch(`${API_BASE}/api/leads/${encodeURIComponent(phone)}/history`, { method: 'DELETE' })
+      const res = await fetch(`${API_BASE}/api/leads/${encodeURIComponent(phone)}/history?tenant_id=${encodeURIComponent(tenantId)}`, { method: 'DELETE' })
       if (!res.ok) throw new Error()
       setMessages([])
       setLead(prev => ({ ...prev, total_messages: 0 }))
@@ -168,7 +170,7 @@ export function LeadProfileClient({
   /** Remove lead */
   async function deleteLead() {
     try {
-      const res = await fetch(`${API_BASE}/api/leads/${encodeURIComponent(phone)}`, { method: 'DELETE' })
+      const res = await fetch(`${API_BASE}/api/leads/${encodeURIComponent(phone)}?tenant_id=${encodeURIComponent(tenantId)}`, { method: 'DELETE' })
       if (!res.ok) throw new Error()
       toast({ title: 'Lead removido', variant: 'success' })
       router.push('/leads')

@@ -2,7 +2,12 @@
 import { api } from '../../../lib/api'
 import { SettingsClient } from './settings-client'
 
-export default async function SettingsPage(): Promise<JSX.Element> {
+export default async function SettingsPage({
+  searchParams
+}: {
+  searchParams: { tenant_id?: string }
+}): Promise<JSX.Element> {
+  const tenantId = searchParams.tenant_id ?? 'default'
   let settings: Awaited<ReturnType<typeof api.settings>> = []
   let calendarStatus: Awaited<ReturnType<typeof api.getCalendarStatus>> = {
     connected: false,
@@ -13,12 +18,12 @@ export default async function SettingsPage(): Promise<JSX.Element> {
   }
   try {
     const [settingsResult, calendarResult] = await Promise.allSettled([
-      api.settings(),
+      api.settings(tenantId),
       api.getCalendarStatus()
     ])
     if (settingsResult.status === 'fulfilled') settings = settingsResult.value
     if (calendarResult.status === 'fulfilled') calendarStatus = calendarResult.value
   } catch { /* API offline */ }
 
-  return <SettingsClient initialSettings={settings} initialCalendarStatus={calendarStatus} />
+  return <SettingsClient initialSettings={settings} initialCalendarStatus={calendarStatus} tenantId={tenantId} />
 }
