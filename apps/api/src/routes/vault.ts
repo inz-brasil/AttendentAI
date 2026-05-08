@@ -11,6 +11,7 @@ const fileParamsSchema = z.object({
   filename: z.string().min(1)
 })
 const fileBodySchema = z.object({ content: z.string() })
+const tenantQuerySchema = z.object({ tenant_id: z.string().min(1).default('default') })
 const compactBodySchema = z.object({
   tenant_id: z.string().min(1).default('default'),
   batch_id: z.string().nullable().optional()
@@ -22,21 +23,25 @@ const compactBodySchema = z.object({
  * @returns Nada.
  */
 export async function registerVaultRoutes(app: FastifyInstance): Promise<void> {
-  const vault = new VaultManager(env.VAULT_PATH)
-
-  app.get('/api/vault', async () => {
+  app.get('/api/vault', async (request) => {
+    const query = tenantQuerySchema.parse(request.query)
+    const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
     return { leads: await vault.listLeads() }
   })
 
   // ---- Vault Global (_global/) — conhecimento compartilhado entre agentes ----
 
-  app.get('/api/vault/_global/files', async () => {
+  app.get('/api/vault/_global/files', async (request) => {
+    const query = tenantQuerySchema.parse(request.query)
+    const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
     const files = await vault.listGlobalFiles()
     return { files }
   })
 
   app.get('/api/vault/_global/files/:filename', async (request) => {
+    const query = tenantQuerySchema.parse(request.query)
     const { filename } = z.object({ filename: z.string().min(1) }).parse(request.params)
+    const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
     const content = await vault.readGlobal(filename)
     return { filename, content }
   })
@@ -46,19 +51,25 @@ export async function registerVaultRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: 'Forbidden', code: 'WACLI_VAULT_WRITE_FORBIDDEN' })
     }
 
+    const query = tenantQuerySchema.parse(request.query)
     const { filename } = z.object({ filename: z.string().min(1) }).parse(request.params)
     const { content } = fileBodySchema.parse(request.body)
+    const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
     await vault.writeGlobal(filename, content)
     return { success: true }
   })
 
   app.get('/api/vault/:phone/files', async (request) => {
+    const query = tenantQuerySchema.parse(request.query)
     const params = phoneParamsSchema.parse(request.params)
+    const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
     return { files: await vault.listFiles(params.phone) }
   })
 
   app.get('/api/vault/:phone/files/:filename', async (request) => {
+    const query = tenantQuerySchema.parse(request.query)
     const params = fileParamsSchema.parse(request.params)
+    const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
     const content = await vault.read(params.phone, params.filename)
     return { filename: params.filename, content }
   })
@@ -68,15 +79,19 @@ export async function registerVaultRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: 'Forbidden', code: 'WACLI_VAULT_WRITE_FORBIDDEN' })
     }
 
+    const query = tenantQuerySchema.parse(request.query)
     const params = fileParamsSchema.parse(request.params)
     const body = fileBodySchema.parse(request.body)
+    const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
     await vault.write(params.phone, params.filename, body.content)
     return { success: true }
   })
 
   app.delete('/api/vault/:phone/history', async (request) => {
+    const query = tenantQuerySchema.parse(request.query)
     const params = phoneParamsSchema.parse(request.params)
-    await vault.deleteHistory(params.phone)
+    const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
+    await vault.deleteHistory(params.phone, query.tenant_id)
     return { success: true }
   })
 
@@ -92,7 +107,9 @@ export async function registerVaultRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.delete('/api/vault/:phone', async (request) => {
+    const query = tenantQuerySchema.parse(request.query)
     const params = phoneParamsSchema.parse(request.params)
+    const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
     await vault.delete(params.phone)
     return { success: true }
   })

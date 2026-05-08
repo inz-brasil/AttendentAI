@@ -8,6 +8,7 @@ import { conversations, leadMemoryMeta, leads, messageEvents, messages, settings
 import { VaultManager } from '../vault-manager/manager'
 
 const leadParamsSchema = z.object({ phone: z.string().min(1) })
+const tenantQuerySchema = z.object({ tenant_id: z.string().min(1).default('default') })
 const transcriptQuerySchema = z.object({
   tenant_id: z.string().min(1).default('default'),
   limit: z.coerce.number().int().min(1).max(200).default(50)
@@ -50,8 +51,12 @@ function parseContactList(raw: string): string[] {
   return trimmed.split(/[\n,;]/).map((item) => item.trim()).filter(Boolean)
 }
 
-async function loadAdminPhones(): Promise<Set<string>> {
-  const [setting] = await db.select().from(settings).where(eq(settings.key, 'internal_assistant_contacts')).limit(1)
+async function loadAdminPhones(tenantId = 'default'): Promise<Set<string>> {
+  const [setting] = await db
+    .select()
+    .from(settings)
+    .where(and(eq(settings.tenant_id, tenantId), eq(settings.key, 'internal_assistant_contacts')))
+    .limit(1)
   return new Set(parseContactList(setting?.value ?? ''))
 }
 
@@ -61,11 +66,10 @@ async function loadAdminPhones(): Promise<Set<string>> {
  * @returns Nada.
  */
 export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
-  const vault = new VaultManager(env.VAULT_PATH)
-
-  app.get('/api/leads', async () => {
-    const rows = await db.select().from(leads)
-    const adminPhones = await loadAdminPhones()
+  app.get('/api/leads', async (request) => {
+    const query = tenantQuerySchema.parse(request.query)
+    const rows = await db.select().from(leads).where(eq(leads.tenant_id, query.tenant_id))
+    const adminPhones = await loadAdminPhones(query.tenant_id)
     return rows.map((lead) => ({
       ...lead,
       status: deriveVisibleStatus(lead.status, lead.last_message_at),
@@ -75,11 +79,17 @@ export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/leads/:phone/memory-stats', async (request) => {
     const { phone } = leadParamsSchema.parse(request.params)
+    const query = tenantQuerySchema.parse(request.query)
+    const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
     const [messageCount] = await db
       .select({ total_messages: count() })
       .from(messages)
-      .where(eq(messages.lead_phone, phone))
-    const [meta] = await db.select().from(leadMemoryMeta).where(eq(leadMemoryMeta.phone, phone)).limit(1)
+      .where(and(eq(messages.tenant_id, query.tenant_id), eq(messages.lead_phone, phone)))
+    const [meta] = await db
+      .select()
+      .from(leadMemoryMeta)
+      .where(and(eq(leadMemoryMeta.tenant_id, query.tenant_id), eq(leadMemoryMeta.phone, phone)))
+      .limit(1)
     const vaultFiles = await vault.listFiles(phone)
 
     return {
@@ -109,6 +119,8 @@ export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/leads/:phone/vault', async (request) => {
     const { phone } = leadParamsSchema.parse(request.params)
+    const query = tenantQuerySchema.parse(request.query)
+    const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
     const [memoria, historico, notas] = await Promise.all([
       vault.read(phone, 'memoria.md'),
       vault.read(phone, 'historico.md'),
@@ -127,64 +139,88 @@ export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/leads/:phone', async (request, reply) => {
     const params = leadParamsSchema.parse(request.params)
-    const [lead] = await db.select().from(leads).where(eq(leads.phone, params.phone)).limit(1)
+    const query = tenantQuerySchema.parse(request.query)
+    const [lead] = await db
+      .select()
+      .from(leads)
+      .where(and(eq(leads.tenant_id, query.tenant_id), eq(leads.phone, params.phone)))
+      .limit(1)
     return lead
       ? { ...lead, status: deriveVisibleStatus(lead.status, lead.last_message_at) }
       : reply.code(404).send({ error: 'Lead not found', code: 'LEAD_NOT_FOUND' })
   })
 
   app.post('/api/leads', async (request, reply) => {
+    const query = tenantQuerySchema.parse(request.query)
     const body = leadBodySchema.parse(request.body)
-    await db.insert(leads).values(body)
-    return reply.code(201).send(body)
+    await db.insert(leads).values({ ...body, tenant_id: query.tenant_id })
+    return reply.code(201).send({ ...body, tenant_id: query.tenant_id })
   })
 
   app.put('/api/leads/:phone', async (request) => {
     const params = leadParamsSchema.parse(request.params)
+    const query = tenantQuerySchema.parse(request.query)
     const body = leadBodySchema.omit({ phone: true }).partial().parse(request.body)
-    await db.update(leads).set({ ...body, updated_at: new Date() }).where(eq(leads.phone, params.phone))
-    const [lead] = await db.select().from(leads).where(eq(leads.phone, params.phone)).limit(1)
+    await db
+      .update(leads)
+      .set({ ...body, updated_at: new Date() })
+      .where(and(eq(leads.tenant_id, query.tenant_id), eq(leads.phone, params.phone)))
+    const [lead] = await db
+      .select()
+      .from(leads)
+      .where(and(eq(leads.tenant_id, query.tenant_id), eq(leads.phone, params.phone)))
+      .limit(1)
     return lead
   })
 
   // Apaga apenas o histórico de mensagens — mantém perfil e vault (notas/memoria)
   app.delete('/api/leads/:phone/history', async (request) => {
     const { phone } = leadParamsSchema.parse(request.params)
-    await db.delete(messages).where(eq(messages.lead_phone, phone))
-    await db.delete(conversations).where(eq(conversations.lead_phone, phone))
+    const query = tenantQuerySchema.parse(request.query)
+    const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
+    await db.delete(messages).where(and(eq(messages.tenant_id, query.tenant_id), eq(messages.lead_phone, phone)))
+    await db
+      .delete(conversations)
+      .where(and(eq(conversations.tenant_id, query.tenant_id), eq(conversations.lead_phone, phone)))
     await db
       .update(leadMemoryMeta)
       .set({ last_compaction_at: null, total_compactions: 0, total_messages_summarized: 0 })
-      .where(eq(leadMemoryMeta.phone, phone))
+      .where(and(eq(leadMemoryMeta.tenant_id, query.tenant_id), eq(leadMemoryMeta.phone, phone)))
     await db
       .update(leads)
       .set({ total_messages: 0, last_message_at: null, updated_at: new Date() })
-      .where(eq(leads.phone, phone))
+      .where(and(eq(leads.tenant_id, query.tenant_id), eq(leads.phone, phone)))
     // Limpa historico.md mas preserva outros arquivos do vault
     try {
-      await vault.deleteHistory(phone)
+      await vault.deleteHistory(phone, query.tenant_id)
     } catch (error) {
       // Vault pode não existir — não bloqueia a resposta, mas registra para auditoria.
       request.log.warn({ err: error, phone }, 'lead vault history deletion failed')
     }
-    request.log.info({ phone }, 'lead history deleted')
+    request.log.info({ phone, tenant_id: query.tenant_id }, 'lead history deleted')
     return { success: true }
   })
 
   // Remove lead completamente, incluindo mensagens e pasta do vault
   app.delete('/api/leads/:phone', async (request) => {
     const { phone } = leadParamsSchema.parse(request.params)
-    await db.delete(messages).where(eq(messages.lead_phone, phone))
-    await db.delete(conversations).where(eq(conversations.lead_phone, phone))
-    await db.delete(leadMemoryMeta).where(eq(leadMemoryMeta.phone, phone))
-    await db.delete(leads).where(eq(leads.phone, phone))
+    const query = tenantQuerySchema.parse(request.query)
+    const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
+    await db.delete(messages).where(and(eq(messages.tenant_id, query.tenant_id), eq(messages.lead_phone, phone)))
+    await db
+      .delete(conversations)
+      .where(and(eq(conversations.tenant_id, query.tenant_id), eq(conversations.lead_phone, phone)))
+    await db
+      .delete(leadMemoryMeta)
+      .where(and(eq(leadMemoryMeta.tenant_id, query.tenant_id), eq(leadMemoryMeta.phone, phone)))
+    await db.delete(leads).where(and(eq(leads.tenant_id, query.tenant_id), eq(leads.phone, phone)))
     try {
       await vault.delete(phone)
     } catch (error) {
       // Vault pode não existir — não bloqueia a resposta, mas registra para auditoria.
       request.log.warn({ err: error, phone }, 'lead vault deletion failed')
     }
-    request.log.info({ phone }, 'lead deleted')
+    request.log.info({ phone, tenant_id: query.tenant_id }, 'lead deleted')
     return { success: true }
   })
 }

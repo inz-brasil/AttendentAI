@@ -7,6 +7,7 @@ import { agentTraces, traceEvents } from '../db/schema'
 import { traceEmitter, type TraceEvent } from '../observability/trace-emitter'
 
 const phoneParamsSchema = z.object({ phone: z.string().min(1) })
+const tenantQuerySchema = z.object({ tenant_id: z.string().min(1).default('default') })
 const traceStreamQuerySchema = z.object({ tenant_id: z.string().min(1) })
 const tracesQuerySchema = z.object({
   batch_id: z.string().min(1).optional(),
@@ -24,8 +25,14 @@ function formatSseEvent(event: TraceEvent): string {
  * @returns Nada.
  */
 export async function registerTraceRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/api/traces/contacts', async () => {
-    const traces = await db.select().from(agentTraces).orderBy(desc(agentTraces.created_at)).limit(1000)
+  app.get('/api/traces/contacts', async (request) => {
+    const query = tenantQuerySchema.parse(request.query)
+    const traces = await db
+      .select()
+      .from(agentTraces)
+      .where(eq(agentTraces.tenant_id, query.tenant_id))
+      .orderBy(desc(agentTraces.created_at))
+      .limit(1000)
     const contacts = new Map<string, {
       phone: string
       lead_name: string | null
@@ -94,7 +101,13 @@ export async function registerTraceRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    const traces = await db.select().from(agentTraces).orderBy(desc(agentTraces.created_at)).limit(100)
+    const tenantId = query.tenant_id ?? 'default'
+    const traces = await db
+      .select()
+      .from(agentTraces)
+      .where(eq(agentTraces.tenant_id, tenantId))
+      .orderBy(desc(agentTraces.created_at))
+      .limit(100)
     return { traces }
   })
 
@@ -128,10 +141,11 @@ export async function registerTraceRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/traces/:phone/runs', async (request) => {
     const { phone } = phoneParamsSchema.parse(request.params)
+    const query = tenantQuerySchema.parse(request.query)
     const traces = await db
       .select()
       .from(agentTraces)
-      .where(eq(agentTraces.phone, phone))
+      .where(and(eq(agentTraces.tenant_id, query.tenant_id), eq(agentTraces.phone, phone)))
       .orderBy(desc(agentTraces.created_at))
       .limit(500)
 
@@ -168,10 +182,11 @@ export async function registerTraceRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/traces/:phone', async (request) => {
     const { phone } = phoneParamsSchema.parse(request.params)
+    const query = tenantQuerySchema.parse(request.query)
     const traces = await db
       .select()
       .from(agentTraces)
-      .where(eq(agentTraces.phone, phone))
+      .where(and(eq(agentTraces.tenant_id, query.tenant_id), eq(agentTraces.phone, phone)))
       .orderBy(desc(agentTraces.created_at))
       .limit(100)
     return { traces }

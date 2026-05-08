@@ -334,8 +334,9 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
       })
     }
 
-    const payload = normalizeEvolutionPayload(parsed.data)
-    return processEvolutionPayload(payload, request, reply, queryEngine)
+    const tenantId = resolveTenantId(request)
+    const payload = normalizeEvolutionPayload(parsed.data, tenantId)
+    return processEvolutionPayload(payload, request, reply, queryEngine, tenantId)
   })
 }
 
@@ -347,7 +348,8 @@ async function processEvolutionPayload(
   payload: EvolutionPayload,
   request: FastifyRequest,
   reply: WebhookRouteReply,
-  queryEngine: QueryEngine
+  queryEngine: QueryEngine,
+  tenantId = 'default'
 ): Promise<Record<string, unknown> | WebhookRouteReply> {
   const allowed = await enforcePhoneRateLimit(request, reply, payload.phone, WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE)
   if (!allowed) {
@@ -355,28 +357,29 @@ async function processEvolutionPayload(
   }
 
   if (payload.event?.from_me === true || payload.contact_info?.from_me === true) {
-    return handleOutboundEvolutionEvent(payload)
+    return handleOutboundEvolutionEvent(payload, tenantId)
   }
 
-  return processInboundEvolutionPayload(payload, reply, queryEngine)
+  return processInboundEvolutionPayload(payload, reply, queryEngine, tenantId)
 }
 
 async function processInboundEvolutionPayload(
   payload: EvolutionPayload,
   reply: WebhookRouteReply,
-  queryEngine: QueryEngine
+  queryEngine: QueryEngine,
+  tenantId = 'default'
 ): Promise<Record<string, unknown> | WebhookRouteReply> {
-  if (await isLikelyWacliSelfEcho(payload)) {
+  if (await isLikelyWacliSelfEcho(payload, tenantId)) {
     return handleWacliSelfEcho(payload)
   }
 
-  if (await isInternalAssistantContact(payload)) {
+  if (await isInternalAssistantContact(payload, tenantId)) {
     return processInternalAssistantEvolutionPayload(payload, reply, queryEngine)
   }
 
-  const decision = await canReplyAutomatically(payload.phone)
+  const decision = await canReplyAutomatically(payload.phone, tenantId)
   if (!decision.allowed) {
-    return handleAutomationBlocked(payload, decision)
+    return handleAutomationBlocked(payload, decision, tenantId)
   }
 
   return processAllowedEvolutionPayload(payload, reply, queryEngine, decision)
@@ -427,14 +430,15 @@ async function processInternalAssistantEvolutionPayload(
 
 async function handleAutomationBlocked(
   payload: EvolutionPayload,
-  decision: Awaited<ReturnType<typeof canReplyAutomatically>>
+  decision: Awaited<ReturnType<typeof canReplyAutomatically>>,
+  tenantId = 'default'
 ): Promise<Record<string, unknown>> {
-  await getOrCreateLead(payload.phone, payload.name, payload.contact_info)
+  await getOrCreateLead(payload.phone, payload.name, payload.contact_info, tenantId)
   await saveMessage(payload.phone, 'user', payload.message, {
     message_type: payload.message_type,
     intent: decision.reason,
     agent_used: 'automation-control'
-  })
+  }, tenantId)
   await recordTrace({
     phone: payload.phone,
     agent: 'automation-control',
@@ -491,9 +495,9 @@ async function processAllowedEvolutionPayload(
   }
 }
 
-async function handleOutboundEvolutionEvent(payload: EvolutionPayload): Promise<Record<string, unknown>> {
-  await getOrCreateLead(payload.phone, payload.name, payload.contact_info)
-  const source = await inferOutboundSource(payload)
+async function handleOutboundEvolutionEvent(payload: EvolutionPayload, tenantId = 'default'): Promise<Record<string, unknown>> {
+  await getOrCreateLead(payload.phone, payload.name, payload.contact_info, tenantId)
+  const source = await inferOutboundSource(payload, tenantId)
 
   if (source === 'bot') {
     await recordTrace({
@@ -519,8 +523,8 @@ async function handleOutboundEvolutionEvent(payload: EvolutionPayload): Promise<
     message_type: payload.message_type,
     intent: 'human_takeover',
     agent_used: 'human-agent'
-  })
-  const blacklist = await activateAutomationBlacklist(payload.phone, 'human_takeover', 'evolution')
+  }, tenantId)
+  const blacklist = await activateAutomationBlacklist(payload.phone, 'human_takeover', 'evolution', tenantId)
   await recordTrace({
     phone: payload.phone,
     agent: 'automation-control',
@@ -547,13 +551,14 @@ async function handleOutboundEvolutionEvent(payload: EvolutionPayload): Promise<
   }
 }
 
-function normalizeEvolutionPayload(payload: EvolutionPayload): EvolutionPayload {
+function normalizeEvolutionPayload(payload: EvolutionPayload, tenantId = 'default'): EvolutionPayload {
   const phone = payload.phone.replace(/\D/g, '') || payload.phone
   return {
     ...payload,
     phone,
     contact_info: {
       ...(payload.contact_info ?? {}),
+      tenant_id: tenantId,
       from_me: payload.event?.from_me ?? payload.contact_info?.from_me,
       sender_type: payload.event?.sender_type ?? payload.contact_info?.sender_type,
       remoteJid: payload.event?.remote_jid ?? payload.contact_info?.remoteJid,
@@ -566,7 +571,7 @@ function normalizeEvolutionPayload(payload: EvolutionPayload): EvolutionPayload 
   }
 }
 
-async function inferOutboundSource(payload: EvolutionPayload): Promise<'bot' | 'human_agent'> {
+async function inferOutboundSource(payload: EvolutionPayload, tenantId = 'default'): Promise<'bot' | 'human_agent'> {
   const senderType = payload.event?.sender_type ?? String(payload.contact_info?.sender_type ?? '')
   if (senderType === 'bot') return 'bot'
   if (senderType === 'human_agent') return 'human_agent'
@@ -575,7 +580,12 @@ async function inferOutboundSource(payload: EvolutionPayload): Promise<'bot' | '
   const recentAssistantMessages = await db
     .select({ content: messages.content })
     .from(messages)
-    .where(and(eq(messages.lead_phone, payload.phone), eq(messages.role, 'assistant'), gte(messages.created_at, recentWindow)))
+    .where(and(
+      eq(messages.tenant_id, tenantId),
+      eq(messages.lead_phone, payload.phone),
+      eq(messages.role, 'assistant'),
+      gte(messages.created_at, recentWindow)
+    ))
     .orderBy(desc(messages.created_at))
     .limit(10)
   const normalizedPayload = normalizeText(payload.message)
@@ -583,8 +593,8 @@ async function inferOutboundSource(payload: EvolutionPayload): Promise<'bot' | '
   return matchedBotMessage ? 'bot' : 'human_agent'
 }
 
-async function isLikelyWacliSelfEcho(payload: EvolutionPayload): Promise<boolean> {
-  if (!(await isInternalAssistantContact(payload))) {
+async function isLikelyWacliSelfEcho(payload: EvolutionPayload, tenantId = 'default'): Promise<boolean> {
+  if (!(await isInternalAssistantContact(payload, tenantId))) {
     return false
   }
 
@@ -593,6 +603,7 @@ async function isLikelyWacliSelfEcho(payload: EvolutionPayload): Promise<boolean
     .select({ content: messages.content })
     .from(messages)
     .where(and(
+      eq(messages.tenant_id, tenantId),
       eq(messages.lead_phone, payload.phone),
       eq(messages.role, 'assistant'),
       eq(messages.agent_used, 'internal-assistant-wacli'),
@@ -609,8 +620,8 @@ function normalizeText(value: string): string {
   return value.replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
-async function isInternalAssistantContact(payload: EvolutionPayload): Promise<boolean> {
-  const raw = await getSettingValue('internal_assistant_contacts', '')
+async function isInternalAssistantContact(payload: EvolutionPayload, tenantId = 'default'): Promise<boolean> {
+  const raw = await getSettingValue('internal_assistant_contacts', '', tenantId)
   const contacts = parseContactList(raw)
   if (contacts.length === 0) return false
 
