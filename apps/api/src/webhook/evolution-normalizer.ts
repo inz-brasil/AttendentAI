@@ -39,11 +39,11 @@ const evolutionKeySchema = z.object({
 
 const evolutionDataSchema = z.object({
   key: evolutionKeySchema,
-  message: unknownRecordSchema.optional().default({}),
+  message: unknownRecordSchema.nullish().transform(v => v ?? {}).default({}),
   messageTimestamp: z.union([z.number(), z.string()]),
   messageType: z.string().optional(),
   pushName: z.string().optional(),
-  contextInfo: unknownRecordSchema.optional(),
+  contextInfo: unknownRecordSchema.nullish().transform(v => v ?? undefined),
   instanceId: z.string().optional(),
   chatwootConversationId: z.number().nullable().optional(),
   chatwootInboxId: z.number().nullable().optional(),
