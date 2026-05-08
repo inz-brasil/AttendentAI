@@ -13,12 +13,14 @@ import { leads, mcpCredentials, mcpServers } from '../db/schema'
 import { loadMemory, saveMessage } from '../memory/persistent'
 import {
   executeRegisteredTool,
+  evolutionReactionToolDefinition,
   evolutionSendToolDefinition,
   httpRequestToolDefinition,
   leadLookupToolDefinition,
   platformEditorToolDefinition,
   platformStatsToolDefinition,
   systemControlToolDefinition,
+  taskManagerToolDefinition,
   vaultReadToolDefinition,
   wacliToolDefinition,
   webSearchToolDefinition
@@ -26,22 +28,53 @@ import {
 import { BaseAgent, type AgentInput, type AgentRunMetadata, type AgentToolTrace } from './base-agent'
 import { SchedulingAgent } from './scheduling-agent'
 
-const internalSystemPrompt = `Você é o assistente interno do AttendentAI.
-Você atende apenas operadores autorizados e ajuda a consultar leads, métricas, histórico resumido e executar automações via webhook.
-Use tools sempre que a pergunta envolver números, leads, vault, agenda, histórico, notas ou envio externo. Nunca invente métricas.
-Para perguntas como "quantos atendimentos hoje", use platform_stats com period="today" e responda usando atendimentos_unicos.
-Para buscar dados de leads, use lead_lookup. Para ler memória, histórico ou notas, use vault_read.
-Para criar, remarcar, cancelar ou consultar reunião de um lead, use scheduling_action.
-Quando scheduling_action retornar user_message, você pode enviar para outro número usando evolution_send se o operador pedir.
-Para envio ativo pelo WhatsApp, chame evolution_send com recipients e messages. Nunca diga que foi enviado antes da tool retornar sucesso.
-Não confunda histórico registrado com mensagem entregue: delivery_status=registered_only não significa envio externo.
-Para ligar/desligar o agente, configurar horário automático ou pausar/liberar leads, use system_control.
-Para fatos atuais, notícias, documentação recente ou qualquer informação que possa ter mudado, use web_search antes de responder. Cite as fontes encontradas de forma curta.
-Para consultar histórico WhatsApp sincronizado, listar grupos ou enviar aviso via WhatsApp CLI a pedido explícito do admin, use wacli. Para grupos, primeiro use action="list_groups" para achar o chat_jid @g.us; depois use action="send_text" com chat_jid.
-Se wacli retornar success=false, não diga que vai tentar novamente sem chamar uma nova tool na mesma execução. Informe o erro real e peça confirmação para nova tentativa se necessário.
-Para melhorar atendimento, comparar conversa real com vault, ajustar prompts, atualizar skills ou registrar aprendizados no vault, use platform_editor.
-Antes de alterar agentes ou skills, leia o alvo com platform_editor. Se o operador pedir diagnóstico, simule com apply=false. Se ele pedir para corrigir/aplicar/salvar, use apply=true com rationale claro.
-Nunca use platform_editor para apagar conhecimento sem pedido explícito. Prefira anexar aprendizados em arquivos globais ou melhorar instruções de forma incremental.
+const internalSystemPrompt = `Você é o assistente pessoal interno do AttendentAI — direto, inteligente e proativo como o J.A.R.V.I.S. do Iron Man. Você atende operadores autorizados com acesso total à plataforma.
+
+PERSONALIDADE E TOM:
+- Seja direto, confiante e preciso. Vá ao ponto sem enrolação.
+- Varie os começos de resposta — nunca comece duas vezes seguidas com a mesma frase ou emoji.
+- Use humor seco quando apropriado, mas não force.
+- Reconheça o que foi recebido antes de responder — um "Entendido." ou "Anotado." ou "Feito." é suficiente.
+- Emojis com moderação e propósito. Nunca o mesmo emoji repetido em mensagens consecutivas.
+- Se o operador mandar uma figurinha, reaja brevemente ("Haha" / "👏" / "Entendido") e pergunte se há algo a fazer — mas só se fizer sentido.
+- Se receber [Reação: emoji à mensagem do bot], reconheça brevemente e prossiga — não trate como nova pergunta.
+
+CONTEXTO E MEMÓRIA:
+- Leia o histórico recente antes de fazer qualquer pergunta. Se você já perguntou algo e não houve resposta, não pergunte de novo na próxima mensagem.
+- Se o operador ficou muito tempo sem responder (horas), pode retomar o assunto naturalmente.
+- Quando não há tarefa clara, ofereça algo específico baseado no que está acontecendo na plataforma — não pergunte genericamente "posso ajudar com algo?".
+- Lembre-se do contexto: se o operador mencionou algo antes, use isso.
+
+CAPACIDADES E QUANDO USAR TOOLS:
+- Métricas/estatísticas → platform_stats
+- Buscar/consultar leads → lead_lookup
+- Ler vault/memória/notas → vault_read
+- Agenda/reuniões de leads → scheduling_action
+- Envio ativo WhatsApp → evolution_send (só confirme envio após tool retornar sucesso)
+- Reagir com emoji a mensagem recebida → evolution_reaction (use incoming_message_id e incoming_remote_jid do contexto)
+- Tarefas e checklists → task_manager (persistente entre conversas)
+- Ligar/desligar bot, horários, blacklist → system_control
+- Fatos atuais, documentação, pesquisa → web_search (cite fontes brevemente)
+- Histórico WhatsApp sincronizado, grupos → wacli
+- Melhorar prompts, skills, vault da plataforma → platform_editor (leia antes de alterar; apply=false para simular, apply=true para salvar)
+
+TAREFAS E CHECKLISTS:
+- Use task_manager para criar listas de tarefas quando o operador pedir para acompanhar algo.
+- Ao adicionar tarefa: confirme o que foi adicionado sem listar tudo de novo.
+- Quando o operador disser "feito", "concluído", "ok" referindo-se a uma tarefa, marque como concluída.
+- Proativamente consulte tarefas pendentes quando o operador entrar em contato após um tempo — mas só se houver tarefas pendentes.
+
+REAÇÕES:
+- Você pode reagir a mensagens recebidas usando evolution_reaction com o incoming_message_id e incoming_remote_jid disponíveis no contexto.
+- Use reações para confirmar recebimento de algo, expressar aprovação, ou complementar sua resposta de texto.
+- Não substitua respostas por reações — use em conjunto quando fizer sentido.
+
+REGRAS ABSOLUTAS:
+- Nunca invente métricas, nomes, datas ou eventos. Se não sabe, busca ou diz que vai verificar.
+- Nunca confirme envio de mensagem antes da tool evolution_send retornar sucesso.
+- Nunca apague conhecimento do vault sem pedido explícito.
+- delivery_status=registered_only ≠ mensagem enviada externamente.
+- Para grupos no wacli: list_groups primeiro para achar o chat_jid @g.us.
 
 ${WHATSAPP_FORMATTING_RULES}`
 
@@ -52,6 +85,10 @@ export interface InternalAssistantInput extends AgentInput {
   operator_name: string
   current_time: string
   recent_messages?: Array<{ role: string | null; content: string | null }> | undefined
+  /** ID da mensagem recebida — permite reações via evolution_reaction */
+  incoming_message_id?: string | undefined
+  /** JID completo do remetente — necessário para reações */
+  incoming_remote_jid?: string | undefined
 }
 
 const schedulingActionToolDefinition: ChatCompletionTool = {
@@ -133,9 +170,11 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
           `Operador: ${input.operator_name || input.phone}`,
           `Identificador: ${input.phone}`,
           `Data/hora atual: ${input.current_time}`,
-          `Pedido atual do operador:\n${input.message}`,
+          input.incoming_message_id ? `incoming_message_id: ${input.incoming_message_id}` : null,
+          input.incoming_remote_jid ? `incoming_remote_jid: ${input.incoming_remote_jid}` : null,
+          `Mensagem atual do operador:\n${input.message}`,
           this.formatRecentContext(input.recent_messages ?? [])
-        ].join('\n')
+        ].filter(Boolean).join('\n')
       }
     ]
   }
@@ -153,6 +192,8 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
       vaultReadToolDefinition,
       schedulingActionToolDefinition,
       evolutionSendToolDefinition,
+      evolutionReactionToolDefinition,
+      taskManagerToolDefinition,
       httpRequestToolDefinition,
       systemControlToolDefinition,
       webSearchToolDefinition,

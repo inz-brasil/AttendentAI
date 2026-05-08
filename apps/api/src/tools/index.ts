@@ -1,10 +1,12 @@
 // index.ts — Registry de tools disponíveis para agentes LLM
 import type { ChatCompletionTool } from 'openai/resources/chat/completions'
 import { executeEvolutionSendTool } from './evolution-send'
+import { executeEvolutionReactionTool } from './evolution-reaction'
 import { executeHttpRequestTool } from './http-request'
 import { executePlatformEditorTool } from './platform-editor'
 import { executeLeadLookupTool, executePlatformStatsTool, executeVaultReadTool } from './platform'
 import { executeSystemControlTool } from './system-control'
+import { executeTaskManagerTool } from './task-manager'
 import { executeWacliTool } from './wacli'
 import { executeWebSearchTool } from './web-search.tool'
 
@@ -270,6 +272,50 @@ export const platformEditorToolDefinition: ChatCompletionTool = {
   }
 }
 
+export const taskManagerToolDefinition: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'task_manager',
+    description:
+      'Gerencia a lista de tarefas do operador (checklist persistente). Use para criar, listar, concluir e remover tarefas que o operador pediu para acompanhar.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'add', 'complete', 'remove', 'clear_done'],
+          description: 'list=listar todas, add=adicionar, complete=marcar concluída, remove=excluir, clear_done=limpar concluídas.'
+        },
+        task: { type: 'string', description: 'Texto da tarefa. Obrigatório para add.' },
+        task_index: { type: 'number', description: 'Número da tarefa na lista (1-indexed). Obrigatório para complete e remove.' }
+      },
+      required: ['action']
+    }
+  }
+}
+
+export const evolutionReactionToolDefinition: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'evolution_reaction',
+    description:
+      'Envia uma reação de emoji diretamente em uma mensagem WhatsApp recebida. Use quando quiser reagir com emoji a uma mensagem específica do operador.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        emoji: { type: 'string', description: 'Emoji da reação, ex: 👍, ❤️, 😂, 🔥.' },
+        message_id: { type: 'string', description: 'ID da mensagem a reagir (incoming_message_id do contexto).' },
+        remote_jid: { type: 'string', description: 'JID do destinatário (incoming_remote_jid do contexto).' },
+        from_me: { type: 'boolean', description: 'Se a mensagem reagida foi enviada pelo bot. Normalmente false.' },
+        tenant_id: { type: 'string', description: 'Tenant atual. Use default se não informado.' }
+      },
+      required: ['emoji', 'message_id', 'remote_jid']
+    }
+  }
+}
+
 export const webSearchToolDefinition: ChatCompletionTool = {
   type: 'function',
   function: {
@@ -331,6 +377,14 @@ export async function executeRegisteredTool(name: string, args: unknown): Promis
 
   if (name === 'web_search') {
     return executeWebSearchTool(args)
+  }
+
+  if (name === 'task_manager') {
+    return executeTaskManagerTool(args)
+  }
+
+  if (name === 'evolution_reaction') {
+    return executeEvolutionReactionTool(args)
   }
 
   throw new Error(`Unknown tool: ${name}`)

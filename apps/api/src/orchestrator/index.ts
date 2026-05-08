@@ -165,7 +165,9 @@ export class QueryEngine {
       })
     }
     if (await this.isInternalAssistantContact(payload, tenantId)) {
-      return this.processInternalAssistant(payload, runtimeContext, startedAt, runId, wacliContext.prompt_context, tenantId)
+      const incomingMessageId = this.getStringContactField(payload.contact_info, 'message_id') ?? undefined
+      const incomingRemoteJid = this.getStringContactField(payload.contact_info, 'remoteJid') ?? payload.session_id ?? undefined
+      return this.processInternalAssistant(payload, runtimeContext, startedAt, runId, wacliContext.prompt_context, tenantId, incomingMessageId, incomingRemoteJid)
     }
 
     // Lead e memória em paralelo (duas queries independentes no banco)
@@ -864,7 +866,9 @@ export class QueryEngine {
     startedAt: number,
     runId: string,
     wacliPromptContext: string,
-    tenantId = 'default'
+    tenantId = 'default',
+    incomingMessageId?: string,
+    incomingRemoteJid?: string
   ): Promise<WebhookResponse> {
     const systemPrompt = await this.getInternalAssistantPrompt()
     const memory = await loadMemory(payload.phone, tenantId)
@@ -894,6 +898,8 @@ export class QueryEngine {
       message: payload.message,
       operator_name: payload.name,
       current_time: runtimeContext.currentTime,
+      incoming_message_id: incomingMessageId,
+      incoming_remote_jid: incomingRemoteJid,
       recent_messages: [
         ...memory.recent_messages,
         ...(wacliPromptContext ? [{ role: 'system', content: wacliPromptContext }] : [])
