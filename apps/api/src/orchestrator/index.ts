@@ -1,5 +1,5 @@
 // index.ts — QueryEngine orquestra agentes com contexto isolado e resposta final
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import pino from 'pino'
 import { ClassifierAgent } from '../agents/classifier'
 import { MCP_ENABLED } from '../config/constants'
@@ -1005,8 +1005,12 @@ export class QueryEngine {
     return agent?.system_prompt ?? ''
   }
 
-  private async getSettingValue(key: string): Promise<string> {
-    const [setting] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
+  private async getSettingValue(key: string, tenantId = 'default'): Promise<string> {
+    const [setting] = await db
+      .select()
+      .from(settings)
+      .where(and(eq(settings.tenant_id, tenantId), eq(settings.key, key)))
+      .limit(1)
     return setting?.value ?? ''
   }
 

@@ -88,7 +88,11 @@ function parsePhoneList(raw: string): string[] {
     .filter(Boolean)
 }
 
-async function getSettingValue(key: string, fallback: string): Promise<string> {
-  const [setting] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
+async function getSettingValue(key: string, fallback: string, tenantId = 'default'): Promise<string> {
+  const [setting] = await db
+    .select()
+    .from(settings)
+    .where(and(eq(settings.tenant_id, tenantId), eq(settings.key, key)))
+    .limit(1)
   return setting?.value ?? fallback
 }

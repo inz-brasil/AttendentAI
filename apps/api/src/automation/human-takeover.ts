@@ -1,5 +1,5 @@
 // human-takeover.ts — Gerencia pausa automática quando atendimento humano assume
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '../db/client'
 import { automationBlacklist, settings } from '../db/schema'
 
@@ -68,9 +68,13 @@ export async function getHumanTakeoverPauseMinutes(): Promise<number> {
   return Math.max(1, Number.isFinite(minutes) ? minutes : DEFAULT_PAUSE_MINUTES)
 }
 
-async function getFirstSettingValue(keys: string[], fallback: string): Promise<string> {
+async function getFirstSettingValue(keys: string[], fallback: string, tenantId = 'default'): Promise<string> {
   for (const key of keys) {
-    const [setting] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
+    const [setting] = await db
+      .select()
+      .from(settings)
+      .where(and(eq(settings.tenant_id, tenantId), eq(settings.key, key)))
+      .limit(1)
     if (setting?.value) {
       return setting.value
     }
