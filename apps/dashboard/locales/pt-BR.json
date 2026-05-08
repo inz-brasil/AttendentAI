@@ -182,7 +182,8 @@
       "audio": "Áudio",
       "reactions": "Reações",
       "presence": "Presence",
-      "blacklist": "Blacklist"
+      "blacklist": "Blacklist",
+      "tenant_manager": "Gestão de Tenants"
     },
     "descriptions": {
       "business": "Identidade central da empresa. Tudo que o atendimento precisa saber fica ligado a este portfólio e é salvo no vault.",
