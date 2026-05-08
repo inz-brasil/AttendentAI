@@ -42,9 +42,11 @@ export interface LeadUpdateInput {
   tags?: string[] | undefined
 }
 
-const vault = new VaultManager(env.VAULT_PATH)
-const summarizer = new Summarizer(vault)
 const summarizingPhones = new Set<string>()
+
+function vaultFor(tenantId: string): VaultManager {
+  return VaultManager.forTenant(env.VAULT_PATH, tenantId)
+}
 const log = pino({ name: 'attendentai-memory' })
 const hotIntentSet = new Set(['scheduling'])
 
@@ -100,7 +102,7 @@ export async function getOrCreateLead(phone: string, name: string, contactInfo?:
     return existingLead
   }
 
-  const vaultPath = await vault.ensureLeadFolder(phone, name || 'Sem Nome')
+  const vaultPath = await vaultFor(tenantId).ensureLeadFolder(phone, name || 'Sem Nome')
   const newLead = {
     phone,
     tenant_id: tenantId,
@@ -143,10 +145,11 @@ export async function loadMemory(phone: string, tenantId = 'default'): Promise<M
     .orderBy(desc(messages.created_at))
     .limit(10)
 
-  const memoryFile = await vault.read(phone, 'memoria.md')
+  const tenantVault = vaultFor(tenantId)
+  const memoryFile = await tenantVault.read(phone, 'memoria.md')
   const [historyFile, notesFile] = await Promise.all([
-    vault.read(phone, 'historico.md'),
-    vault.read(phone, 'notas.md')
+    tenantVault.read(phone, 'historico.md'),
+    tenantVault.read(phone, 'notas.md')
   ])
   const vaultMemory = splitVaultMemoryBudget(historyFile, notesFile)
   const leadSummary = [
@@ -193,15 +196,16 @@ export async function updateLead(phone: string, fields: LeadUpdateInput, tenantI
  * @param phone Telefone do lead.
  * @param name Nome conhecido do lead.
  * @param summary Resumo operacional curto.
+ * @param tenantId Tenant isolado (default: 'default').
  * @returns Nada.
  */
-export async function saveConversationSummary(phone: string, name: string, summary: string): Promise<void> {
+export async function saveConversationSummary(phone: string, name: string, summary: string, tenantId = 'default'): Promise<void> {
   const content = `# Histórico de Conversas — ${name || phone}
 
 ## Resumo
 ${summary.trim() || 'Sem resumo operacional ainda.'}
 `
-  await vault.write(phone, 'historico.md', content)
+  await vaultFor(tenantId).write(phone, 'historico.md', content)
 }
 
 /**
@@ -326,6 +330,7 @@ async function triggerSummarizationIfNeeded(phone: string, tenantId = 'default')
     return
   }
 
+  const summarizer = new Summarizer(vaultFor(tenantId))
   if (!(await summarizer.shouldSummarize(phone, tenantId))) {
     return
   }
