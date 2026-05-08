@@ -155,6 +155,7 @@ export function toLegacyEvolutionWebhookPayload(event: NormalizedWhatsappEvent):
     },
     contact_info: {
       remoteJid: event.remoteJid,
+      message_id: event.externalMessageId,
       instancia: event.instance,
       instance_id: event.instanceId,
       chatwoot_conversation_id: event.chatwoot.conversationId,

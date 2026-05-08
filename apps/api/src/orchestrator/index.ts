@@ -165,7 +165,7 @@ export class QueryEngine {
       })
     }
     if (await this.isInternalAssistantContact(payload, tenantId)) {
-      const incomingMessageId = this.getStringContactField(payload.contact_info, 'message_id') ?? undefined
+      const incomingMessageId = this.getStringContactField(payload.contact_info, 'message_id')
       const incomingRemoteJid = this.getStringContactField(payload.contact_info, 'remoteJid') ?? payload.session_id ?? undefined
       return this.processInternalAssistant(payload, runtimeContext, startedAt, runId, wacliContext.prompt_context, tenantId, incomingMessageId, incomingRemoteJid)
     }
