@@ -72,10 +72,11 @@ const vaultSchema = z.object({
   conversation_summary: z.string(),
   last_intent: z.string().nullable(),
   lead_temperature: z.preprocess((v) => {
-    if (v === 'frio' || v === 'cold') return 'cold'
-    if (v === 'morno' || v === 'warm') return 'warm'
+    if (v === 'frio' || v === 'cold' || v === 'fria') return 'cold'
+    if (v === 'morno' || v === 'warm' || v === 'morna' || v === 'medio' || v === 'médio') return 'warm'
     if (v === 'quente' || v === 'hot') return 'hot'
-    return v
+    // qualquer outro valor não mapeado vira null
+    return null
   }, z.enum(['cold', 'warm', 'hot']).nullable())
 })
 
