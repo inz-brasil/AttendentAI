@@ -136,11 +136,17 @@ export class QueryEngine {
       }
     })
     const runtimeContext = this.resolveRuntimeContext(payload)
-    const wacliContext = await syncWacliChatContext(
-      payload.phone,
-      this.getStringContactField(payload.contact_info, 'remoteJid') ?? payload.session_id,
-      payload.name
-    )
+    // Timeout curto para WACLI não bloquear o pipeline principal
+    const wacliContext = await Promise.race([
+      syncWacliChatContext(
+        payload.phone,
+        this.getStringContactField(payload.contact_info, 'remoteJid') ?? payload.session_id,
+        payload.name
+      ),
+      new Promise<{ available: false; chat_jid: null; chat_name: null; context: string; prompt_context: string; messages_count: 0 }>((resolve) =>
+        setTimeout(() => resolve({ available: false, chat_jid: null, chat_name: null, context: '', prompt_context: '', messages_count: 0 }), 2000)
+      )
+    ])
     if (wacliContext.available) {
       await recordTrace({
         phone: payload.phone,

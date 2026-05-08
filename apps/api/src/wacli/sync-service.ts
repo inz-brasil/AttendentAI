@@ -84,7 +84,7 @@ async function runWacliBackfill(config: WacliCommandConfig, chatJid: string, req
     '--count',
     String(count),
     '--json'
-  ], 30_000)
+  ], 5_000)
 }
 
 async function runWacliMessagesList(config: WacliCommandConfig, chatJid: string, limit: number): Promise<WacliBackfillMessage[]> {
@@ -96,7 +96,7 @@ async function runWacliMessagesList(config: WacliCommandConfig, chatJid: string,
     '--limit',
     String(limit),
     '--json'
-  ], 15_000)
+  ], 5_000)
   return extractMessages(raw)
 }
 

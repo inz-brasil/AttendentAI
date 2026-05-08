@@ -26,7 +26,7 @@ const envSchema = z.object({
   LOCK_TTL_SECONDS: z.coerce.number().int().positive(),
   API_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(1000),
   WEBHOOK_PHONE_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(30),
-  BATCH_WINDOW_MS: z.coerce.number().int().positive().default(10000),
+  BATCH_WINDOW_MS: z.coerce.number().int().positive().default(3000),
   BATCH_MAX_MESSAGES: z.coerce.number().int().positive().default(10),
   QUEUE_CONCURRENCY: z.coerce.number().int().positive().default(5),
   VAULT_PATH: z.string().min(1).default('./vault'),
