@@ -143,6 +143,10 @@ export class ConversationBatcher {
     presenceSession: PresenceSession | null
   ) {
     const raw = toRecord(firstEvent.raw_payload)
+    // Prefer internal local URL from db settings (avoids external DNS resolution inside Docker)
+    const dbLocalUrl = await getSettingValue('evolution_local_url')
+    const dbApiUrl = await getSettingValue('evolution_api_url')
+    const dbApiKey = await getSettingValue('evolution_api_key')
     return this.dispatcher.dispatch({
       tenantId: job.tenantId,
       batchId,
@@ -150,9 +154,9 @@ export class ConversationBatcher {
       remoteJid: firstEvent.remote_jid,
       instance: firstEvent.instance,
       instanceId: firstEvent.instance_id ?? job.instanceId,
-      evolutionUrl: readString(raw, 'server_url') ?? readString(raw, 'evolutionUrl'),
-      evolutionLocalUrl: readString(raw, 'url_evolution_local') ?? readString(raw, 'evolutionLocalUrl'),
-      apiKey: readString(raw, 'apikey'),
+      evolutionUrl: readString(raw, 'server_url') ?? readString(raw, 'evolutionUrl') ?? dbApiUrl,
+      evolutionLocalUrl: readString(raw, 'url_evolution_local') ?? readString(raw, 'evolutionLocalUrl') ?? dbLocalUrl,
+      apiKey: readString(raw, 'apikey') ?? dbApiKey,
       text: response.message,
       audioRequested: response.audio_requested,
       senderType: 'bot',
@@ -174,14 +178,17 @@ export class ConversationBatcher {
     }
 
     const raw = toRecord(firstEvent.raw_payload)
+    const dbLocalUrl = await getSettingValue('evolution_local_url')
+    const dbApiUrl = await getSettingValue('evolution_api_url')
+    const dbApiKey = await getSettingValue('evolution_api_key')
     return this.presence.start({
       tenantId: job.tenantId,
       phone: job.phone,
       remoteJid: firstEvent.remote_jid,
       instance,
-      evolutionUrl: readString(raw, 'server_url') ?? readString(raw, 'evolutionUrl'),
-      evolutionLocalUrl: readString(raw, 'url_evolution_local') ?? readString(raw, 'evolutionLocalUrl'),
-      apiKey: readString(raw, 'apikey')
+      evolutionUrl: readString(raw, 'server_url') ?? readString(raw, 'evolutionUrl') ?? dbApiUrl,
+      evolutionLocalUrl: readString(raw, 'url_evolution_local') ?? readString(raw, 'evolutionLocalUrl') ?? dbLocalUrl,
+      apiKey: readString(raw, 'apikey') ?? dbApiKey
     }, 'composing')
   }
 

@@ -1,4 +1,5 @@
 // downloader.ts — Baixa mídia da Evolution API e entrega buffer para processadores
+import { env } from '../config/env'
 import type { NormalizedWhatsappEvent } from '../webhook/evolution-normalizer'
 
 export interface DownloadedMedia {
@@ -62,7 +63,8 @@ export class EvolutionMediaDownloader implements MediaDownloader {
   }
 
   private resolveBaseUrl(event: NormalizedWhatsappEvent): string {
-    const baseUrl = event.evolutionLocalUrl || event.evolutionUrl
+    // Prefer internal Docker URL to avoid external DNS resolution failures inside containers
+    const baseUrl = event.evolutionLocalUrl || env.EVOLUTION_LOCAL_URL || event.evolutionUrl || env.EVOLUTION_API_URL
     if (!baseUrl) {
       throw new Error('Evolution URL is missing for media download')
     }
