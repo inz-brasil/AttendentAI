@@ -255,6 +255,27 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
       })
     }
 
+    // Reações não disparam resposta automática — apenas registrar silenciosamente
+    if (normalized.processedType === 'reaction') {
+      await traceEmitter.emit('webhook_rejected', {
+        tenant_id: tenantId,
+        phone: normalized.phone,
+        status: 'ignored',
+        data: {
+          reason: 'reaction_event',
+          event_type: normalized.event,
+          message_id: normalized.externalMessageId,
+          reaction_text: normalized.text
+        }
+      })
+      return reply.code(200).send({
+        success: true,
+        action: 'ignored',
+        reason: 'reaction_event',
+        reaction: normalized.text
+      })
+    }
+
     const transcript = await transcriptIngestor.ingest({ tenantId, event: normalized, source: 'evolution' })
     if (shouldProcessMedia(normalized.processedType) && transcript.status === 'ingested') {
       mediaProcessor.processInBackground({ tenantId, event: normalized, messageEvent: transcript.event })
@@ -341,7 +362,7 @@ export async function registerWebhookRoutes(app: FastifyInstance): Promise<void>
 }
 
 function shouldProcessMedia(processedType: string): boolean {
-  return processedType !== 'text' && processedType !== 'unknown'
+  return processedType !== 'text' && processedType !== 'unknown' && processedType !== 'reaction' && processedType !== 'sticker'
 }
 
 async function processEvolutionPayload(
@@ -369,6 +390,17 @@ async function processInboundEvolutionPayload(
   queryEngine: QueryEngine,
   tenantId = 'default'
 ): Promise<Record<string, unknown> | WebhookRouteReply> {
+  // Reações de emoji não devem disparar resposta automática do agente
+  if (payload.event?.raw_message_type === 'reactionMessage' || payload.event?.processed_type === 'reaction') {
+    return {
+      success: true,
+      should_reply: false,
+      action: 'ignored',
+      reason: 'reaction_event',
+      message: ''
+    }
+  }
+
   if (await isLikelyWacliSelfEcho(payload, tenantId)) {
     return handleWacliSelfEcho(payload)
   }

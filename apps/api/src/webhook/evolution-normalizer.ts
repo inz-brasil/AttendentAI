@@ -1,7 +1,7 @@
 // evolution-normalizer.ts — Normaliza payload bruto da Evolution API para evento WhatsApp tipado
 import { z } from 'zod'
 
-export type NormalizedProcessedType = 'text' | 'audio' | 'image' | 'video' | 'document' | 'sticker' | 'unknown'
+export type NormalizedProcessedType = 'text' | 'audio' | 'image' | 'video' | 'document' | 'sticker' | 'reaction' | 'unknown'
 
 export interface NormalizedWhatsappEvent {
   phone: string
@@ -182,25 +182,62 @@ function inferProcessedType(message: Record<string, unknown>): NormalizedProcess
   if (hasRecord(message, 'videoMessage')) return 'video'
   if (hasRecord(message, 'documentMessage')) return 'document'
   if (hasRecord(message, 'stickerMessage')) return 'sticker'
+  if (hasRecord(message, 'reactionMessage')) return 'reaction'
   if (extractMainText(message).trim()) return 'text'
   return 'unknown'
 }
 
 function inferMessageType(message: Record<string, unknown>): string {
-  const knownTypes = ['conversation', 'extendedTextMessage', 'audioMessage', 'imageMessage', 'videoMessage', 'documentMessage', 'stickerMessage']
+  const knownTypes = ['conversation', 'extendedTextMessage', 'audioMessage', 'imageMessage', 'videoMessage', 'documentMessage', 'stickerMessage', 'reactionMessage']
   return knownTypes.find((key) => key in message) ?? 'unknown'
 }
 
 function extractMainText(message: Record<string, unknown>): string {
-  return (
+  // Texto direto / mensagens de texto
+  const textContent =
     readString(message, 'conversation') ??
     readString(getRecord(message, 'extendedTextMessage'), 'text') ??
     readString(getRecord(getRecord(message, 'ephemeralMessage'), 'message'), 'conversation') ??
     readString(getRecord(getRecord(getRecord(message, 'ephemeralMessage'), 'message'), 'extendedTextMessage'), 'text') ??
     readString(getRecord(message, 'imageMessage'), 'caption') ??
     readString(getRecord(message, 'videoMessage'), 'caption') ??
-    ''
-  )
+    readString(getRecord(message, 'documentMessage'), 'caption')
+
+  if (textContent != null) return textContent
+
+  // Reação de emoji a uma mensagem
+  const reactionMsg = getRecord(message, 'reactionMessage')
+  if (reactionMsg != null) {
+    const emoji = readString(reactionMsg, 'text') ?? '?'
+    const targetKey = getRecord(reactionMsg, 'key')
+    // fromMe=true → reação a mensagem do bot; false → reação a mensagem do próprio usuário
+    const targetFromMe = targetKey?.fromMe === true
+    const targetDesc = targetFromMe ? 'mensagem do bot' : 'mensagem enviada'
+    return `[Reação: ${emoji} à ${targetDesc}]`
+  }
+
+  // Figurinha
+  if (hasRecord(message, 'stickerMessage')) return '[Figurinha]'
+
+  // GIF (videoMessage com gifPlayback=true)
+  const videoMsg = getRecord(message, 'videoMessage')
+  if (videoMsg != null) {
+    return videoMsg.gifPlayback === true ? '[GIF animado]' : '[Vídeo]'
+  }
+
+  // Áudio
+  if (hasRecord(message, 'audioMessage')) return '[Áudio]'
+
+  // Imagem sem legenda
+  if (hasRecord(message, 'imageMessage')) return '[Imagem]'
+
+  // Documento
+  if (hasRecord(message, 'documentMessage')) {
+    const fileName = readString(getRecord(message, 'documentMessage'), 'fileName')
+    return fileName ? `[Documento: ${fileName}]` : '[Documento]'
+  }
+
+  return ''
 }
 
 function extractQuotedInfo(
@@ -238,7 +275,7 @@ function extractMediaUrl(message: Record<string, unknown>): string | null {
 function toLegacyMessageType(processedType: NormalizedProcessedType): 'text' | 'audio' | 'image' {
   if (processedType === 'audio') return 'audio'
   if (processedType === 'image') return 'image'
-  return 'text'
+  return 'text'  // reaction, sticker, video, document, unknown → text (legado)
 }
 
 function getRecord(source: Record<string, unknown> | undefined, key: string): Record<string, unknown> | undefined {
