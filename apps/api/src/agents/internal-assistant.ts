@@ -7,7 +7,7 @@ import type {
 import { z } from 'zod'
 import { env } from '../config/env'
 import { WHATSAPP_FORMATTING_RULES, normalizeWhatsAppFormatting } from '../config/whatsapp-formatting'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '../db/client'
 import { leads, mcpCredentials, mcpServers } from '../db/schema'
 import { loadMemory, saveMessage } from '../memory/persistent'
@@ -240,7 +240,8 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
 
   private async executeSchedulingAction(args: unknown, input: InternalAssistantInput): Promise<unknown> {
     const parsed = schedulingActionArgsSchema.parse(args)
-    const lead = await this.loadLead(parsed.lead_phone)
+    const tenantId = input.tenant_id ?? 'default'
+    const lead = await this.loadLead(parsed.lead_phone, tenantId)
     if (!lead) {
       return { success: false, error: 'Lead não encontrado', delivery_status: 'not_sent' }
     }
@@ -250,8 +251,8 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
       return { success: false, error: 'Google Calendar não conectado ou inativo', delivery_status: 'not_sent' }
     }
 
-    const result = await this.runSchedulingForLead(parsed.instruction, input, lead, server)
-    const deliveryStatus = await this.registerUserMessageIfRequested(parsed.notify_user, lead.phone, result)
+    const result = await this.runSchedulingForLead(parsed.instruction, input, lead, server, tenantId)
+    const deliveryStatus = await this.registerUserMessageIfRequested(parsed.notify_user, lead.phone, result, tenantId)
     return {
       success: result.status !== 'failed',
       delivery_status: deliveryStatus,
@@ -268,8 +269,8 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
     }
   }
 
-  private async loadLead(phone: string): Promise<LeadRow | null> {
-    const [lead] = await db.select().from(leads).where(eq(leads.phone, phone)).limit(1)
+  private async loadLead(phone: string, tenantId = 'default'): Promise<LeadRow | null> {
+    const [lead] = await db.select().from(leads).where(and(eq(leads.tenant_id, tenantId), eq(leads.phone, phone))).limit(1)
     return lead ?? null
   }
 
@@ -289,9 +290,10 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
     instruction: string,
     input: InternalAssistantInput,
     lead: LeadRow,
-    server: McpServerRow
+    server: McpServerRow,
+    tenantId = 'default'
   ) {
-    const memory = await loadMemory(lead.phone)
+    const memory = await loadMemory(lead.phone, tenantId)
     return this.schedulingAgent.run({
       phone: lead.phone,
       run_id: typeof input.run_id === 'string' ? input.run_id : crypto.randomUUID(),
@@ -310,7 +312,8 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
   private async registerUserMessageIfRequested(
     notifyUser: boolean,
     phone: string,
-    result: Awaited<ReturnType<SchedulingAgent['run']>>
+    result: Awaited<ReturnType<SchedulingAgent['run']>>,
+    tenantId = 'default'
   ): Promise<'not_sent' | 'registered_only'> {
     if (notifyUser && result.user_message) {
       await saveMessage(phone, 'assistant', result.user_message, {
@@ -319,7 +322,7 @@ export class InternalAssistantAgent extends BaseAgent<InternalAssistantInput, In
         tokens_used: result.tokens_used,
         agent_used: 'scheduling-agent',
         processing_ms: result.duration_ms
-      })
+      }, tenantId)
       return 'registered_only'
     }
 

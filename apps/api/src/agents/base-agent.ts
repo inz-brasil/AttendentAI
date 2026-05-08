@@ -11,7 +11,7 @@ import { env } from '../config/env'
 import { db } from '../db/client'
 import { agentTraces, tokenUsage } from '../db/schema'
 
-export type AgentInput = Record<string, unknown>
+export type AgentInput = Record<string, unknown> & { tenant_id?: string | undefined }
 
 export interface AgentToolTrace {
   tool: string
@@ -129,8 +129,9 @@ export abstract class BaseAgent<TInput extends AgentInput, TOutput> {
           const text = message?.content ?? ''
           const durationMs = Date.now() - start
 
-          await this.saveTokenUsage(tokensUsed, promptTokens, completionTokens)
-          await this.saveToolTrace(input, toolTrace)
+          const tenantId = typeof input.tenant_id === 'string' ? input.tenant_id : 'default'
+          await this.saveTokenUsage(tokensUsed, promptTokens, completionTokens, tenantId)
+          await this.saveToolTrace(input, toolTrace, tenantId)
           log.info({
             agent: this.name,
             model,
@@ -219,8 +220,9 @@ export abstract class BaseAgent<TInput extends AgentInput, TOutput> {
     return typeof input.model === 'string' && input.model.trim() ? input.model : this.model
   }
 
-  private async saveTokenUsage(totalTokens: number, promptTokens: number, completionTokens: number): Promise<void> {
+  private async saveTokenUsage(totalTokens: number, promptTokens: number, completionTokens: number, tenantId = 'default'): Promise<void> {
     await db.insert(tokenUsage).values({
+      tenant_id: tenantId,
       date: today(),
       model: this.model,
       agent_type: this.name,
@@ -231,7 +233,7 @@ export abstract class BaseAgent<TInput extends AgentInput, TOutput> {
     })
   }
 
-  private async saveToolTrace(input: TInput, trace: AgentToolTrace[]): Promise<void> {
+  private async saveToolTrace(input: TInput, trace: AgentToolTrace[], tenantId = 'default'): Promise<void> {
     if (trace.length === 0) {
       return
     }
@@ -240,6 +242,7 @@ export abstract class BaseAgent<TInput extends AgentInput, TOutput> {
     const runId = typeof input.run_id === 'string' ? input.run_id : null
     await db.insert(agentTraces).values(
       trace.map((item) => ({
+        tenant_id: tenantId,
         phone,
         run_id: runId,
         agent: this.name,
