@@ -8,7 +8,8 @@
     "build": "bun build src/main.ts --outdir dist --target bun",
     "start": "bun dist/main.js",
     "drizzle-kit": "node node_modules/drizzle-kit/bin.cjs",
-    "typecheck": "bun tsc --noEmit"
+    "typecheck": "bun tsc --noEmit",
+    "clear-history": "bun run src/scripts/clear-history.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.0",

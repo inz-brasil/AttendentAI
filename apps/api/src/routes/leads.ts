@@ -6,6 +6,7 @@ import { env } from '../config/env'
 import { db } from '../db/client'
 import { conversations, leadMemoryMeta, leads, messageEvents, messages, settings, type LeadStatus } from '../db/schema'
 import { VaultManager } from '../vault-manager/manager'
+import { broadcast } from '../websocket/server'
 
 const leadParamsSchema = z.object({ phone: z.string().min(1) })
 const tenantQuerySchema = z.object({ tenant_id: z.string().min(1).default('default') })
@@ -173,32 +174,46 @@ export async function registerLeadRoutes(app: FastifyInstance): Promise<void> {
     return lead
   })
 
-  // Apaga apenas o histórico de mensagens — mantém perfil e vault (notas/memoria)
+  // Apaga todo o histórico de conversa de um lead — mensagens, eventos e vault (mantém lead/perfil)
   app.delete('/api/leads/:phone/history', async (request) => {
     const { phone } = leadParamsSchema.parse(request.params)
     const query = tenantQuerySchema.parse(request.query)
     const vault = VaultManager.forTenant(env.VAULT_PATH, query.tenant_id)
-    await db.delete(messages).where(and(eq(messages.tenant_id, query.tenant_id), eq(messages.lead_phone, phone)))
-    await db
-      .delete(conversations)
-      .where(and(eq(conversations.tenant_id, query.tenant_id), eq(conversations.lead_phone, phone)))
-    await db
-      .update(leadMemoryMeta)
-      .set({ last_compaction_at: null, total_compactions: 0, total_messages_summarized: 0 })
-      .where(and(eq(leadMemoryMeta.tenant_id, query.tenant_id), eq(leadMemoryMeta.phone, phone)))
-    await db
-      .update(leads)
-      .set({ total_messages: 0, last_message_at: null, updated_at: new Date() })
-      .where(and(eq(leads.tenant_id, query.tenant_id), eq(leads.phone, phone)))
-    // Limpa historico.md mas preserva outros arquivos do vault
+
+    // 1. Limpar todos os 3 layers do banco em paralelo
+    await Promise.all([
+      db.delete(messages).where(and(eq(messages.tenant_id, query.tenant_id), eq(messages.lead_phone, phone))),
+      db.delete(conversations).where(and(eq(conversations.tenant_id, query.tenant_id), eq(conversations.lead_phone, phone))),
+      db.delete(messageEvents).where(and(eq(messageEvents.tenant_id, query.tenant_id), eq(messageEvents.lead_phone, phone)))
+    ])
+
+    // 2. Resetar metadados de compactação
+    await Promise.all([
+      db.update(leadMemoryMeta)
+        .set({ last_compaction_at: null, total_compactions: 0, total_messages_summarized: 0 })
+        .where(and(eq(leadMemoryMeta.tenant_id, query.tenant_id), eq(leadMemoryMeta.phone, phone))),
+      db.update(leads)
+        .set({ total_messages: 0, last_message_at: null, updated_at: new Date() })
+        .where(and(eq(leads.tenant_id, query.tenant_id), eq(leads.phone, phone)))
+    ])
+
+    // 3. Resetar todos os arquivos de vault (memoria, historico e notas)
     try {
-      await vault.deleteHistory(phone, query.tenant_id)
+      const now = new Date().toISOString()
+      await Promise.all([
+        vault.write(phone, 'historico.md', `# Histórico de Conversas\n\nSem histórico.\n`),
+        vault.write(phone, 'notas.md', `# Notas\n\n[Sem notas]\n`),
+        vault.write(phone, 'memoria.md', `---\nphone: "${phone}"\nname: "(não informado)"\ncreated_at: "${now}"\nupdated_at: "${now}"\nstatus: "novo"\ntags: []\n---\n\n## Dados do Contato\n- **Telefone:** ${phone}\n- **Nome:** (não informado)\n\n## Perfil\n- **Interesse principal:** (não informado)\n- **Dor relatada:** (não informado)\n\n## Estágio\n- **Status atual:** Novo lead\n- **Próximo passo:** (não definido)\n`)
+      ])
     } catch (error) {
-      // Vault pode não existir — não bloqueia a resposta, mas registra para auditoria.
-      request.log.warn({ err: error, phone }, 'lead vault history deletion failed')
+      request.log.warn({ err: error, phone }, 'vault reset failed — DB was cleared successfully')
     }
-    request.log.info({ phone, tenant_id: query.tenant_id }, 'lead history deleted')
-    return { success: true }
+
+    // 4. Broadcast para o dashboard sincronizar o histórico
+    broadcast({ type: 'history_cleared', phone, tenant_id: query.tenant_id, timestamp: new Date().toISOString() })
+
+    request.log.info({ phone, tenant_id: query.tenant_id }, 'lead history cleared (messages + messageEvents + vault)')
+    return { success: true, phone, cleared_layers: ['messages', 'conversations', 'messageEvents', 'vault'] }
   })
 
   // Remove lead completamente, incluindo mensagens e pasta do vault

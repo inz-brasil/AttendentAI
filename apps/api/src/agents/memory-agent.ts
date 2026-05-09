@@ -53,27 +53,25 @@ export class MemoryAgent extends BaseAgent<MemoryNoteInput, MemoryNoteOutput> {
   }
 
   /**
-   * Busca trecho relevante do vault usando intent como filtro simples.
+   * Busca trecho relevante do vault para contexto live do agente.
+   * Notas acumuladas são excluídas do contexto live — ficam disponíveis apenas para ferramentas e relatórios.
+   * O histório real da conversa vem do recentTranscript (messageEvents), não do vault.
    * @param phone Telefone do lead.
    * @param intent Intenção classificada.
-   * @returns Contexto textual do vault.
+   * @returns Contexto textual do vault (somente memoria.md ou historico.md).
    */
   async fetchRelevant(phone: string, intent: string): Promise<string> {
-    const [memory, history, notes] = await Promise.all([
+    const [memory, history] = await Promise.all([
       this.vault.read(phone, 'memoria.md'),
-      this.vault.read(phone, 'historico.md'),
-      this.vault.read(phone, 'notas.md')
+      this.vault.read(phone, 'historico.md')
     ])
 
-    if (intent === 'sales' || intent === 'qualification') {
-      return [memory, notes].filter(Boolean).join('\n\n')
-    }
-
     if (intent === 'support' || intent === 'complaint') {
-      return [history, notes].filter(Boolean).join('\n\n')
+      return [history, memory].filter(Boolean).join('\n\n')
     }
 
-    return [memory, history, notes].filter(Boolean).join('\n\n')
+    // Para vendas, qualificação e demais: usa só memoria.md (perfil compacto do lead)
+    return memory || ''
   }
 
   /**

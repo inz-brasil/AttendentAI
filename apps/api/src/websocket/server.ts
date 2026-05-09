@@ -6,7 +6,7 @@ import type { WebSocket } from '@fastify/websocket'
 const clients = new Set<WebSocket>()
 
 export interface WsEvent {
-  type: 'new_message' | 'agent_status' | 'system'
+  type: 'new_message' | 'agent_status' | 'system' | 'history_cleared'
   phone?: string
   name?: string
   message?: string

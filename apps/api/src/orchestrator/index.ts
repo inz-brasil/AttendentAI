@@ -31,6 +31,7 @@ import { acquirePhoneLock, releasePhoneLock, waitForPhoneLockRelease } from '../
 import { SkillsLoader } from '../skills/loader'
 import { syncWacliChatContext } from '../wacli/context-sync'
 import { broadcast } from '../websocket/server'
+import { splitMessage } from '../utils/message-splitter'
 import { PromptBuilder } from './prompt-builder'
 
 export interface WebhookPayload {
@@ -49,6 +50,7 @@ export interface WebhookResponse {
   success: boolean
   message: string
   audio_requested: boolean
+  split_messages?: Array<{ text: string; delay_ms: number }>
   reaction_requested?: {
     emoji: string
     targetMessageId: string
@@ -540,10 +542,13 @@ export class QueryEngine {
         log.error({ err: error, phone: payload.phone }, 'failed to save memory note')
       })
 
+    const splitMessages = response.audio_requested ? undefined : splitMessage(guardedText)
+
     return {
       success: true,
       message: guardedText,
       audio_requested: response.audio_requested,
+      split_messages: splitMessages,
       reaction_requested: null,
       metadata: {
         lead_id: payload.phone,
