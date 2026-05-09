@@ -162,8 +162,15 @@ export function ConversationsClient({ initialMessages, tenantId = 'default' }: C
         intent: typeof lastEvent.intent === 'string' ? lastEvent.intent : undefined,
         timestamp: lastEvent.timestamp
       })
+    } else if (lastEvent.type === 'history_cleared' && typeof lastEvent.phone === 'string') {
+      const cleared = lastEvent.phone
+      setFeed(prev => prev.filter(e => e.phone !== cleared))
+      if (expandedPhone === cleared) {
+        setChatMessages([])
+        setExpandedPhone(null)
+      }
     }
-  }, [lastEvent, applyLiveEvent])
+  }, [lastEvent, applyLiveEvent, expandedPhone])
 
   // Carrega mensagens de um lead ao expandir
   const expandLead = useCallback(async (phone: string) => {
