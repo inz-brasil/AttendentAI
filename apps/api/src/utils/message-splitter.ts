@@ -76,7 +76,7 @@ function groupSentences(sentences: string[]): string[] {
   if (sentences.length === 1) return sentences
 
   const groups: string[] = []
-  const first = sentences[0].trim()
+  const first = (sentences[0] ?? '').trim()
 
   if (first.length <= SHORT_SENTENCE_THRESHOLD && sentences.length > 1) {
     // Acknowledgment curto isolado: "Entendi.", "Anotado!", "Certo."

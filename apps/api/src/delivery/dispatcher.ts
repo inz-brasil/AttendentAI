@@ -81,7 +81,7 @@ export class ResponseDispatcher {
       await this.preparePresenceBeforeSend(input.presenceSession ?? null, audioDecision.allowed)
       const result = audioDecision.allowed
         ? await this.sendAudio(sender, remoteJid, input.text)
-        : await this.sendText(sender, remoteJid, input.text)
+        : await this.sendText(sender, remoteJid, input.text, config)
 
       await this.tracker.markSent(event, result.externalMessageId)
       await this.reactor.react({
@@ -129,7 +129,8 @@ export class ResponseDispatcher {
   private async sendText(
     sender: EvolutionSender,
     remoteJid: string,
-    text: string
+    text: string,
+    presenceConfig?: EvolutionSenderConfig
   ): Promise<{ mode: 'text'; blocksSent: number; externalMessageId: string | null }> {
     const blocks = splitWhatsAppParagraphs(text)
     if (blocks.length === 0) {
@@ -138,7 +139,13 @@ export class ResponseDispatcher {
 
     let externalMessageId: string | null = null
 
-    for (const block of blocks) {
+    for (const [index, block] of blocks.entries()) {
+      if (index > 0 && presenceConfig) {
+        const delayMs = humanizedBlockDelay(block, index)
+        await sendComposingPresence(remoteJid, presenceConfig)
+        await sleep(delayMs)
+        await sendPausedPresence(remoteJid, presenceConfig)
+      }
       const result = await sender.sendText({ remoteJid, text: block })
       externalMessageId = result.externalMessageId ?? externalMessageId
     }
@@ -187,6 +194,47 @@ function sleep(ms: number): Promise<void> {
 
 function randomRecordingDelayMs(): number {
   return 1000 + Math.floor(Math.random() * 2001)
+}
+
+/**
+ * Calcula delay humanizado entre blocos de texto proporcionalmente ao tamanho do próximo bloco.
+ * @param nextBlock Texto do próximo bloco.
+ * @param index Posição do bloco na sequência (aumenta levemente o delay).
+ * @returns Milissegundos a aguardar antes de enviar o bloco.
+ */
+function humanizedBlockDelay(nextBlock: string, index: number): number {
+  const chars = nextBlock.trim().length
+  let base: number
+  if (chars <= 30) base = 700
+  else if (chars <= 80) base = 1400
+  else if (chars <= 180) base = 2200
+  else base = 3000
+  const jitter = Math.floor((Math.random() - 0.5) * base * 0.3)
+  return Math.max(500, Math.min(4500, base + jitter + index * 150))
+}
+
+async function sendComposingPresence(remoteJid: string, config: EvolutionSenderConfig): Promise<void> {
+  try {
+    await fetch(`${config.baseUrl.replace(/\/$/, '')}/chat/sendPresence/${encodeURIComponent(config.instance)}`, {
+      method: 'POST',
+      headers: { apikey: config.apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ number: remoteJid, presence: 'composing' })
+    })
+  } catch {
+    // falha silenciosa — presença é best-effort
+  }
+}
+
+async function sendPausedPresence(remoteJid: string, config: EvolutionSenderConfig): Promise<void> {
+  try {
+    await fetch(`${config.baseUrl.replace(/\/$/, '')}/chat/sendPresence/${encodeURIComponent(config.instance)}`, {
+      method: 'POST',
+      headers: { apikey: config.apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ number: remoteJid, presence: 'paused' })
+    })
+  } catch {
+    // falha silenciosa — presença é best-effort
+  }
 }
 
 function resolveEvolutionConfig(input: DispatchResponseInput): EvolutionSenderConfig {
